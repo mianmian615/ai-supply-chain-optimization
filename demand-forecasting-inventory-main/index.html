@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demand Forecasting & Inventory Optimization</title>
+<meta name="description" content="Time-series demand forecasting across 6 retail SKUs (8.7% backtest MAPE) turned into a concrete purchase order: per-SKU safety stock, reorder points and order-up-to levels at a 95% service level. By Harshith Bandari."/>
+<meta property="og:title" content="Demand Forecasting & Inventory Optimization Dashboard"/>
+<meta property="og:description" content="Time-series demand forecasting across 6 retail SKUs (8.7% backtest MAPE) turned into a concrete purchase order: per-SKU safety stock, reorder points and order-up-to levels at a 95% service level. By Harshith Bandari."/>
+<meta property="og:type" content="website"/><meta property="og:image" content="preview.png"/>
+<meta property="og:url" content="https://harshithbandari.github.io/demand-forecasting-inventory/"/><meta name="twitter:card" content="summary_large_image"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<script src="data.js"></script>
+<style>:root{--c1:#38bdf8;--c2:#22d3ee;--c3:#818cf8;--c1d:#22d3ee;--pos:#34d399;--neg:#fb7185;--text:#eaf6ff;--muted:#93b4c9;--bg:#06121f;--bg2:#0b1f33;--bg3:#07131f;--card:rgba(255,255,255,.045);--cardline:rgba(255,255,255,.12);--line:rgba(255,255,255,.07);--g1:rgba(56,189,248,.22);--g2:rgba(129,140,248,.16);--g3:rgba(34,211,238,.16);--sh:rgba(56,189,248,.4);--icbg:rgba(56,189,248,.16);--icln:rgba(56,189,248,.4);--kn:7}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{min-height:100vh;background:
+  radial-gradient(1100px 620px at 8% -6%, var(--g1), transparent 60%),
+  radial-gradient(1000px 620px at 97% 2%, var(--g2), transparent 55%),
+  radial-gradient(900px 700px at 60% 112%, var(--g3), transparent 55%),
+  linear-gradient(160deg,var(--bg) 0%, var(--bg2) 60%, var(--bg3) 100%);
+  background-attachment:fixed;padding:22px clamp(12px,3vw,40px) 60px}
+.wrap{max-width:1400px;margin:0 auto}
+h1,h2,h3,.brand{font-family:'Sora','Inter',sans-serif}
+.hero{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-bottom:22px}
+.logo{width:52px;height:52px;flex:0 0 auto;filter:drop-shadow(0 6px 18px var(--sh))}
+.brand{font-size:clamp(22px,3vw,30px);font-weight:800;letter-spacing:.3px;line-height:1.05}
+.brand span{background:linear-gradient(92deg,var(--c1),var(--c2),var(--c3));-webkit-background-clip:text;background-clip:text;color:transparent}
+.subttl{color:var(--muted);font-size:13.5px;margin-top:3px;font-weight:500}
+.hero-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chip{background:var(--card);border:1px solid var(--cardline);backdrop-filter:blur(8px);padding:8px 14px;border-radius:999px;font-size:12.5px;color:var(--text);font-weight:600;display:flex;align-items:center;gap:8px}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--c1);box-shadow:0 0 10px var(--c1)}
+.chip.author{color:var(--muted)} .chip.author b{color:var(--text);font-weight:700}
+.tabs{display:flex;gap:6px;margin:6px 0 20px;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);padding:6px;border-radius:14px;backdrop-filter:blur(8px);width:fit-content}
+.tab{padding:9px 16px;border-radius:10px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;border:1px solid transparent;transition:.2s;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--bg);background:linear-gradient(92deg,var(--c1),var(--c2));border-color:transparent;box-shadow:0 6px 20px var(--sh)}
+.kpis{display:grid;grid-template-columns:repeat(var(--kn),1fr);gap:12px;margin-bottom:22px}
+@media(max-width:1150px){.kpis{grid-template-columns:repeat(4,1fr)}}
+@media(max-width:560px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.kpi{background:var(--card);border:1px solid var(--cardline);border-radius:16px;padding:15px 15px 14px;backdrop-filter:blur(10px);position:relative;overflow:hidden;opacity:0;transform:translateY(14px);animation:rise .6s forwards}
+.kpi::before{content:"";position:absolute;inset:0 auto auto 0;width:100%;height:3px;background:linear-gradient(90deg,var(--c1),var(--c3))}
+.kpi .lab{font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);font-weight:600}
+.kpi .val{font-family:'Sora';font-size:clamp(18px,2vw,23px);font-weight:800;margin-top:8px;line-height:1}
+.kpi .sub{font-size:11.5px;margin-top:7px;color:var(--muted);font-weight:500}
+@keyframes rise{to{opacity:1;transform:none}}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(12,1fr)}
+.panel{background:var(--card);border:1px solid var(--cardline);border-radius:18px;padding:16px 16px 8px;backdrop-filter:blur(10px);opacity:0;transform:translateY(16px);animation:rise .6s forwards}
+.panel h3{font-size:14.5px;font-weight:700;letter-spacing:.2px}
+.panel .h3sub{font-size:12px;color:var(--muted);margin-top:3px;font-weight:500;margin-bottom:2px}
+.col12{grid-column:span 12}.col8{grid-column:span 8}.col6{grid-column:span 6}.col5{grid-column:span 5}.col7{grid-column:span 7}.col4{grid-column:span 4}
+@media(max-width:960px){.col8,.col6,.col5,.col7,.col4{grid-column:span 12}}
+.chart{width:100%;height:320px}.chart.tall{height:388px}.chart.sm{height:250px}
+.page{display:none}.page.active{display:block}
+.insight{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--text);line-height:1.5}
+.insight:last-child{border-bottom:none}
+.insight .ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;background:var(--icbg);border:1px solid var(--icln)}
+.foot{margin-top:26px;color:var(--muted);font-size:12px;text-align:center;line-height:1.7}
+.foot a{color:var(--c3);text-decoration:none}
+.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--icbg);color:var(--c1);border:1px solid var(--icln);margin-left:6px}
+.dtable{width:100%;border-collapse:collapse;font-size:12.5px}
+.dtable th,.dtable td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line)}
+.dtable th{color:var(--muted);text-transform:uppercase;font-size:10.5px;letter-spacing:.5px}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+.pill.hi{background:rgba(251,113,133,.16);color:#fda4af;border:1px solid rgba(251,113,133,.35)}
+.pill.md{background:rgba(251,191,36,.16);color:#fcd34d;border:1px solid rgba(251,191,36,.35)}
+.pill.lo{background:rgba(52,211,153,.16);color:#6ee7b7;border:1px solid rgba(52,211,153,.35)}
+</style></head><body><div class="wrap">
+<div class="hero"><svg class="logo" viewBox="0 0 64 64" fill="none"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#38bdf8"/><stop offset=".5" stop-color="#22d3ee"/><stop offset="1" stop-color="#818cf8"/></linearGradient></defs><rect x="8" y="10" width="48" height="44" rx="9" stroke="url(#g)" stroke-width="2.4" opacity=".5"/><path d="M14 42l10-10 8 6 12-16" stroke="url(#g)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="52" cy="22" r="3" fill="url(#g)"/></svg>
+<div><div class="brand">Demand Forecasting <span>& Inventory</span></div><div class="subttl">From 2 years of sales to a per-SKU purchase order at 95% service level</div></div>
+<div class="hero-right"><div class="chip"><span class="dot"></span>6 SKUs · 8.7% MAPE</div><div class="chip author">by <b>Harshith Bandari</b></div></div>
+</div>
+<div class="tabs" id="tabs"><div class="tab active" data-p="overview">Overview</div>
+<div class="tab" data-p="forecast">Forecast</div>
+<div class="tab" data-p="inventory">Inventory</div></div>
+<div class="kpis" id="kpis"></div>
+<div class="page active" id="page-overview"><div class="grid"><div class="panel col8"><h3>Forecast vs Actual — SKU-01</h3><div class="h3sub">Last 45 days of sales with the 30-day forecast overlaid</div><div id="c_fvsa" class="chart tall"></div></div>
+<div class="panel col4"><h3>Backtest Accuracy by SKU</h3><div class="h3sub">MAPE — lower is better</div><div id="c_mape" class="chart tall"></div></div>
+<div class="panel col12"><h3>Key Findings</h3><div class="h3sub"></div><div id="insights"></div></div>
+</div></div>
+<div class="page" id="page-forecast"><div class="grid"><div class="panel col12"><h3>30-Day Forecast — all SKUs</h3><div class="h3sub">Forward demand per product line</div><div id="c_all" class="chart tall"></div></div>
+<div class="panel col12"><h3>Weekly Seasonality</h3><div class="h3sub">Average units by day of week — the pattern the model exploits</div><div id="c_season" class="chart "></div></div>
+</div></div>
+<div class="page" id="page-inventory"><div class="grid"><div class="panel col12"><h3>Inventory Policy by SKU</h3><div class="h3sub">Safety stock, reorder point and order-up-to level</div><div id="c_inv" class="chart tall"></div></div>
+<div class="panel col6"><h3>Reorder Point by SKU</h3><div class="h3sub">Order when on-hand hits this level</div><div id="c_reorder" class="chart "></div></div>
+<div class="panel col6"><h3>Avg Daily Demand by Category</h3><div class="h3sub">Where the volume is</div><div id="c_cat" class="chart "></div></div>
+<div class="panel col12"><h3>Reorder Recommendations</h3><div class="h3sub"></div><table class="dtable"><thead><tr><th>SKU</th><th>Category</th><th>Avg demand</th><th>Reorder at</th><th>Order up to</th></tr></thead><tbody><tr><td><b>SKU-01</b></td><td style="color:var(--muted)">Beverages</td><td>126/day</td><td><span class="pill md">977</span></td><td>1858</td></tr><tr><td><b>SKU-02</b></td><td style="color:var(--muted)">Snacks</td><td>93/day</td><td><span class="pill md">722</span></td><td>1373</td></tr><tr><td><b>SKU-03</b></td><td style="color:var(--muted)">Household</td><td>67/day</td><td><span class="pill md">526</span></td><td>994</td></tr><tr><td><b>SKU-04</b></td><td style="color:var(--muted)">Personal Care</td><td>52/day</td><td><span class="pill md">401</span></td><td>763</td></tr><tr><td><b>SKU-05</b></td><td style="color:var(--muted)">Frozen</td><td>74/day</td><td><span class="pill md">575</span></td><td>1092</td></tr><tr><td><b>SKU-06</b></td><td style="color:var(--muted)">Bakery</td><td>52/day</td><td><span class="pill md">416</span></td><td>782</td></tr></tbody></table></div>
+</div></div>
+
+<div class="foot">Built by <b>Harshith Bandari</b> · Time-series forecasting with seasonality + safety-stock / reorder-point optimization (Python, pandas) · <a href="https://github.com/harshithbandari/demand-forecasting-inventory">GitHub repo</a><span class="badge">8.7% MAPE · 95% SERVICE LEVEL</span><br/>Dataset modeled on the structure of public retail demand datasets (Walmart M5 / Rossmann) · every figure is produced by the pipeline (Python → results.json → this dashboard)</div>
+</div>
+<script>window.TH={"c1": "#38bdf8", "c2": "#22d3ee", "c3": "#818cf8", "c1d": "#22d3ee", "pos": "#34d399", "neg": "#fb7185", "text": "#eaf6ff", "muted": "#93b4c9", "bg": "#06121f", "bg2": "#0b1f33", "bg3": "#07131f", "g1": "rgba(56,189,248,.22)", "g2": "rgba(129,140,248,.16)", "g3": "rgba(34,211,238,.16)", "sh": "rgba(56,189,248,.4)", "icbg": "rgba(56,189,248,.16)", "icln": "rgba(56,189,248,.4)", "tt": "rgba(8,22,36,.96)", "pal": ["#38bdf8", "#22d3ee", "#818cf8", "#34d399", "#fbbf24", "#f472b6"]};window.DATA=window.DATA||{};</script>
+<script>
+const D=window.DATA;const TH=window.TH;
+const AXIS={axisLine:{lineStyle:{color:'rgba(255,255,255,.16)'}},axisLabel:{color:TH.muted,fontSize:11},splitLine:{lineStyle:{color:'rgba(255,255,255,.05)'}}};
+const TT={backgroundColor:TH.tt,borderColor:TH.c2,borderWidth:1,textStyle:{color:TH.text,fontSize:12},padding:[9,13]};
+function grad(c1,c2){return new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:c1},{offset:1,color:c2}]);}
+function hgrad(c1,c2){return new echarts.graphic.LinearGradient(0,0,1,0,[{offset:0,color:c1},{offset:1,color:c2}]);}
+const charts={};
+function mk(id){if(charts[id]){charts[id].dispose();}const c=echarts.init(document.getElementById(id));charts[id]=c;return c;}
+const CH={
+ bar:(id,pairs,o={})=>{o=Object.assign({horiz:false,rotate:0,fmt:v=>v,c1:TH.c1,c2:TH.c1d},o);
+   let p=pairs.slice(); if(o.horiz)p.sort((a,b)=>a[1]-b[1]);
+   const cats=p.map(x=>x[0]),vals=p.map(x=>x[1]);
+   const base={tooltip:{trigger:'axis',...TT,valueFormatter:o.fmt},grid:{left:8,right:o.horiz?24:16,top:14,bottom:8,containLabel:true},animationDuration:800};
+   if(o.horiz)mk(id).setOption({...base,xAxis:{type:'value',...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},yAxis:{type:'category',data:cats,...AXIS},
+     series:[{type:'bar',data:vals,barWidth:'62%',itemStyle:{color:hgrad(o.c2,o.c1),borderRadius:[0,6,6,0]},label:{show:true,position:'right',color:TH.text,fontSize:11,formatter:e=>o.fmt(e.value)}}]});
+   else mk(id).setOption({...base,xAxis:{type:'category',data:cats,...AXIS,axisLabel:{...AXIS.axisLabel,rotate:o.rotate}},yAxis:{type:'value',...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+     series:[{type:'bar',data:vals,barWidth:'52%',itemStyle:{color:grad(o.c1,o.c2),borderRadius:[6,6,0,0]},label:{show:true,position:'top',color:TH.text,fontSize:11,formatter:e=>o.fmt(e.value)}}]});},
+ donut:(id,pairs,o={})=>{o=Object.assign({fmt:v=>v},o);
+   mk(id).setOption({tooltip:{trigger:'item',...TT,valueFormatter:o.fmt},
+    legend:{orient:'vertical',right:0,top:'center',textStyle:{color:TH.muted,fontSize:12},itemWidth:10,itemHeight:10},
+    series:[{type:'pie',radius:['52%','78%'],center:['38%','52%'],itemStyle:{borderColor:TH.bg,borderWidth:2,borderRadius:5},label:{show:false},
+     data:pairs.map((x,i)=>({name:x[0],value:x[1],itemStyle:{color:TH.pal[i%TH.pal.length]}}))}],animationDuration:800});},
+ line:(id,cats,vals,o={})=>{o=Object.assign({fmt:v=>v,color:TH.c1,rotate:0,min:null},o);
+   mk(id).setOption({tooltip:{trigger:'axis',...TT,valueFormatter:o.fmt},grid:{left:8,right:14,top:16,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:cats,...AXIS,axisLabel:{...AXIS.axisLabel,rotate:o.rotate}},
+    yAxis:{type:'value',...AXIS,...(o.min!=null?{min:o.min}:{}),axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+    series:[{type:'line',smooth:true,symbol:'circle',symbolSize:6,data:vals,lineStyle:{width:3,color:o.color},itemStyle:{color:o.color},
+     areaStyle:{color:grad(o.color+'55',o.color+'05')}}],animationDuration:900});},
+ lines:(id,cats,series,o={})=>{o=Object.assign({fmt:v=>v,rotate:0},o);
+   mk(id).setOption({tooltip:{trigger:'axis',...TT,valueFormatter:o.fmt},legend:{data:series.map(s=>s.name),textStyle:{color:TH.muted},top:0,right:0,icon:'roundRect'},
+    grid:{left:8,right:14,top:34,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:cats,...AXIS,axisLabel:{...AXIS.axisLabel,rotate:o.rotate}},
+    yAxis:{type:'value',...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+    series:series.map((s,i)=>({name:s.name,type:'line',smooth:true,symbol:s.dashed?'none':'circle',symbolSize:5,data:s.data,
+      lineStyle:{width:s.dashed?2.5:3,color:TH.pal[i%TH.pal.length],type:s.dashed?'dashed':'solid'},itemStyle:{color:TH.pal[i%TH.pal.length]},
+      areaStyle:s.area?{color:grad(TH.pal[i%TH.pal.length]+'40',TH.pal[i%TH.pal.length]+'03')}:null})),animationDuration:900});},
+ gbar:(id,cats,series,o={})=>{o=Object.assign({fmt:v=>v,rotate:0,stack:false},o);
+   mk(id).setOption({tooltip:{trigger:'axis',...TT,valueFormatter:o.fmt},legend:{data:series.map(s=>s.name),textStyle:{color:TH.muted},top:0,right:0,icon:'roundRect'},
+    grid:{left:8,right:12,top:34,bottom:8,containLabel:true},
+    xAxis:{type:'category',data:cats,...AXIS,axisLabel:{...AXIS.axisLabel,rotate:o.rotate}},
+    yAxis:{type:'value',...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+    series:series.map((s,i)=>({name:s.name,type:'bar',stack:o.stack?'s':null,data:s.data,barWidth:o.stack?'46%':'32%',
+      itemStyle:{color:grad(TH.pal[i%TH.pal.length],TH.pal[i%TH.pal.length]+'55'),borderRadius:[4,4,0,0]}})),animationDuration:800});},
+ diverging:(id,items,o={})=>{o=Object.assign({fmt:v=>v},o); let p=items.slice().sort((a,b)=>a.value-b.value);
+   mk(id).setOption({tooltip:{trigger:'axis',...TT,valueFormatter:o.fmt},grid:{left:8,right:24,top:14,bottom:8,containLabel:true},
+    xAxis:{type:'value',...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+    yAxis:{type:'category',data:p.map(x=>x.label),...AXIS},
+    series:[{type:'bar',data:p.map(x=>({value:x.value,itemStyle:{color:x.value>=0?hgrad(TH.pos,TH.pos+'99'):hgrad(TH.neg,TH.neg+'99'),borderRadius:x.value>=0?[0,6,6,0]:[6,0,0,6]}})),barWidth:'58%',
+      markLine:{silent:true,symbol:'none',lineStyle:{color:'rgba(255,255,255,.25)'},data:[{xAxis:0}]},
+      label:{show:true,position:'right',color:TH.text,fontSize:11,formatter:e=>o.fmt(e.value)}}],animationDuration:800});},
+ scatter:(id,pts,o={})=>{o=Object.assign({xname:'',yname:'',fmt:v=>v,mark:null},o);
+   mk(id).setOption({tooltip:{...TT,formatter:p=>'<b>'+p.data[3]+'</b><br/>'+o.xname+': '+o.fmt(p.data[0])+'<br/>'+o.yname+': '+p.data[1]},
+    grid:{left:8,right:18,top:16,bottom:8,containLabel:true},
+    xAxis:{type:'value',name:o.xname,nameTextStyle:{color:TH.muted},...AXIS,axisLabel:{...AXIS.axisLabel,formatter:o.fmt}},
+    yAxis:{type:'value',name:o.yname,nameTextStyle:{color:TH.muted},...AXIS},
+    series:[{type:'scatter',data:pts.map((c,i)=>({value:[c.x,c.y,c.r,c.label],symbolSize:c.sz||18,
+      itemStyle:{color:TH.pal[i%TH.pal.length],opacity:.85,shadowBlur:12,shadowColor:'rgba(0,0,0,.4)'},
+      label:{show:true,formatter:c.label,position:'top',color:TH.text,fontSize:10.5,fontWeight:600}})),
+      ...(o.mark?{markLine:{silent:true,symbol:'none',lineStyle:{color:'rgba(255,255,255,.3)',type:'dashed'},data:o.mark}}:{})}],animationDuration:800});},
+};
+const kEl=document.getElementById('kpis');
+D.kpis.forEach((k,i)=>{const d=document.createElement('div');d.className='kpi';d.style.animationDelay=(i*55)+'ms';
+ d.innerHTML='<div class="lab">'+k.lab+'</div><div class="val">'+k.val+'</div><div class="sub">'+k.sub+'</div>';kEl.appendChild(d);});
+const insEl=document.getElementById('insights');
+if(insEl)D.insights.forEach(t=>{const d=document.createElement('div');d.className='insight';d.innerHTML='<div class="ic">▶</div><div>'+t+'</div>';insEl.appendChild(d);});
+document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(!t)return;
+ document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
+ document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+ document.getElementById('page-'+t.dataset.p).classList.add('active');
+ setTimeout(()=>{Object.values(charts).forEach(c=>c.resize());},30);});
+window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+
+
+CH.lines('c_fvsa',D.fdates,[{name:'Actual',data:D.actual,area:true},{name:'Forecast (30d)',data:D.forecast,dashed:true}],{fmt:v=>v==null?'—':Math.round(v)+' u',rotate:40});
+CH.bar('c_mape',D.mape,{fmt:v=>v.toFixed(1)+'%',c1:'#22d3ee',c2:'#818cf8'});
+CH.lines('c_all',D.all_dates,D.all_series,{fmt:v=>Math.round(v)+' u',rotate:40});
+CH.bar('c_season',D.season,{fmt:v=>v.toFixed(0)+' u',c1:'#38bdf8',c2:'#22d3ee'});
+CH.gbar('c_inv',D.inv_cats,D.inv_series,{fmt:v=>Math.round(v)+' u'});
+CH.bar('c_reorder',D.reorder,{horiz:true,fmt:v=>Math.round(v)+' u',c1:'#818cf8',c2:'#38bdf8'});
+CH.bar('c_cat',D.cat,{horiz:true,fmt:v=>Math.round(v)+'/day',c1:'#34d399',c2:'#22d3ee'});
+
+</script></body></html>

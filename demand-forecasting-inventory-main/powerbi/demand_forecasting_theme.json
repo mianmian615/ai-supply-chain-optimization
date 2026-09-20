@@ -1,0 +1,66 @@
+{
+ "name": "Demand Forecasting",
+ "dataColors": [
+  "#38bdf8",
+  "#22d3ee",
+  "#818cf8",
+  "#34d399",
+  "#fbbf24",
+  "#f472b6",
+  "#a78bfa",
+  "#06121f"
+ ],
+ "background": "#06121f",
+ "foreground": "#eaf6ff",
+ "tableAccent": "#22d3ee",
+ "good": "#34d399",
+ "neutral": "#fbbf24",
+ "bad": "#22d3ee",
+ "maximum": "#38bdf8",
+ "center": "#818cf8",
+ "minimum": "#06121f",
+ "visualStyles": {
+  "*": {
+   "*": {
+    "background": [
+     {
+      "color": {
+       "solid": {
+        "color": "#06121f"
+       }
+      }
+     }
+    ],
+    "border": [
+     {
+      "color": {
+       "solid": {
+        "color": "#2a2436"
+       }
+      },
+      "radius": 10
+     }
+    ],
+    "title": [
+     {
+      "fontColor": {
+       "solid": {
+        "color": "#eaf6ff"
+       }
+      },
+      "fontSize": 12
+     }
+    ],
+    "labels": [
+     {
+      "color": {
+       "solid": {
+        "color": "#eaf6ff"
+       }
+      }
+     }
+    ]
+   }
+  }
+ }
+}
