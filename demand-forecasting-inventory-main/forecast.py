@@ -1,82 +1,234 @@
-
-"""
-forecast.py
-
-AI-Driven Supply Chain Demand Forecasting
-& Inventory Optimization System
-
-Day 3:
-1. Demand forecasting
-2. Model comparison
-3. Promotion feature
-4. Safety stock
-5. Reorder point
-6. Order-up-to level
-7. Service-level analysis
-8. Inventory cost optimization
-"""
-
-import pathlib
+from pathlib import Path
 import json
+import math
 
 import numpy as np
 import pandas as pd
-
-import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from sklearn.linear_model import LinearRegression
-
 
 # ============================================================
-# 1. SETTINGS
+# 1. 基础配置
 # ============================================================
 
-BASE = pathlib.Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parent
+DATA_FILE = BASE / "sales.csv"
+OUTPUT_DIR = BASE / "outputs"
+OUTPUT_DIR.mkdir(exist_ok=True)
 
-HORIZON = 30
-HOLDOUT = 60
-LEAD = 7
+FORECAST_HORIZON = 30
+BACKTEST_DAYS = 60
 
-# We will compare several service levels.
+LEAD_TIME_DAYS = 7
+REVIEW_PERIOD_DAYS = 7
+
+# 我们比较三种服务水平
 SERVICE_LEVELS = {
     "90%": 1.28,
     "95%": 1.65,
-    "99%": 2.33
+    "99%": 2.33,
 }
 
-# Inventory cost assumptions.
-# These are synthetic business assumptions for this project.
+# ============================================================
+# 成本假设
+# ============================================================
+# 注意：
+# 这些是项目中的“示例成本参数”，不是某个真实公司的财务数据。
 
-HOLDING_COST_PER_UNIT = 0.50
+HOLDING_COST_PER_UNIT_PER_YEAR = 5.00
 STOCKOUT_COST_PER_UNIT = 5.00
-ORDERING_COST = 100.00
+ORDERING_COST_PER_ORDER = 100.00
 
 
 # ============================================================
-# 2. LOAD DATA
+# 2. 数据读取
 # ============================================================
 
 df = pd.read_csv(
-    BASE / "sales.csv",
+    DATA_FILE,
     parse_dates=["date"]
 )
 
-df = (
-    df
-    .sort_values(["sku", "date"])
-    .reset_index(drop=True)
-)
+df = df.sort_values(["sku", "date"]).reset_index(drop=True)
 
 
 # ============================================================
-# 3. FEATURE ENGINEERING
+# 3. MAPE / RMSE
 # ============================================================
 
-def create_features(data):
+def mape(actual, predicted):
+    actual = np.asarray(actual)
+    predicted = np.asarray(predicted)
 
-    data = data.copy()
+    mask = actual != 0
+
+    if mask.sum() == 0:
+        return np.nan
+
+    return (
+        np.mean(
+            np.abs(
+                (actual[mask] - predicted[mask])
+                / actual[mask]
+            )
+        )
+        * 100
+    )
+
+
+def rmse(actual, predicted):
+    actual = np.asarray(actual)
+    predicted = np.asarray(predicted)
+
+    return np.sqrt(
+        np.mean(
+            (actual - predicted) ** 2
+        )
+    )
+
+
+# ============================================================
+# 4. Seasonal Baseline / Seasonal + Promo
+# ============================================================
+
+def seasonal_fit(train_df, use_promo=False):
+    data = train_df.copy()
+
+    data["dow"] = data["date"].dt.dayofweek
+    data["month"] = data["date"].dt.month
+
+    # ----------------------------
+    # 基础趋势
+    # ----------------------------
+
+    x = np.arange(len(data))
+
+    if len(data) >= 2:
+        trend_coef = np.polyfit(
+            x,
+            data["units_sold"],
+            1
+        )
+    else:
+        trend_coef = [0, data["units_sold"].mean()]
+
+    trend = np.polyval(
+        trend_coef,
+        x
+    )
+
+    residual = data["units_sold"] - trend
+
+    # ----------------------------
+    # 星期季节性
+    # ----------------------------
+
+    dow_factor = (
+        residual.groupby(data["dow"])
+        .mean()
+    )
+
+    # ----------------------------
+    # 月份季节性
+    # ----------------------------
+
+    month_factor = (
+        residual.groupby(data["month"])
+        .mean()
+    )
+
+    # ----------------------------
+    # Promotion effect
+    # ----------------------------
+
+    promo_effect = 0.0
+
+    if use_promo and "promo" in data.columns:
+
+        promo_days = data.loc[
+            data["promo"] == 1,
+            "units_sold"
+        ]
+
+        non_promo_days = data.loc[
+            data["promo"] == 0,
+            "units_sold"
+        ]
+
+        if len(promo_days) > 0 and len(non_promo_days) > 0:
+
+            promo_effect = (
+                promo_days.mean()
+                - non_promo_days.mean()
+            )
+
+    return (
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
+    )
+
+
+def seasonal_predict(
+    dates,
+    trend_coef,
+    dow_factor,
+    month_factor,
+    promo_effect=0.0,
+    promo=None
+):
+
+    dates = pd.Series(pd.to_datetime(dates))
+
+    x_future = np.arange(
+        len(dates)
+    )
+
+    trend = np.polyval(
+        trend_coef,
+        x_future
+    )
+
+    dow = dates.dt.dayofweek
+    month = dates.dt.month
+
+    dow_component = dow.map(
+        dow_factor
+    ).fillna(0).values
+
+    month_component = month.map(
+        month_factor
+    ).fillna(0).values
+
+    prediction = (
+        trend
+        + dow_component
+        + month_component
+    )
+
+    if promo is not None:
+
+        promo = np.asarray(promo)
+
+        prediction = (
+            prediction
+            + promo * promo_effect
+        )
+
+    return np.maximum(
+        prediction,
+        0
+    )
+
+
+# ============================================================
+# 5. Linear Regression
+# ============================================================
+
+def regression_fit(train_df):
+
+    data = train_df.copy()
 
     data["t"] = np.arange(len(data))
 
@@ -84,742 +236,471 @@ def create_features(data):
 
     data["month"] = data["date"].dt.month
 
-    return data
+    features = [
+        "t",
+        "dow",
+        "month",
+        "promo",
+    ]
 
+    X = data[features].values
 
-# ============================================================
-# 4. SEASONAL + PROMOTION MODEL
-# ============================================================
+    y = data["units_sold"].values
 
-def seasonal_fit(train):
-
-    t = np.arange(len(train))
-
-    y = (
-        train["units_sold"]
-        .values
-        .astype(float)
+    X_design = np.column_stack(
+        [
+            np.ones(len(X)),
+            X
+        ]
     )
 
-    # Trend
-    b, a = np.polyfit(
-        t,
+    coef = np.linalg.lstsq(
+        X_design,
         y,
-        1
-    )
+        rcond=None
+    )[0]
 
-    detr = (
-        y
-        - (
-            a
-            + b * t
-        )
-    )
-
-    # Weekly seasonality
-    wk = (
-        pd.Series(detr)
-        .groupby(
-            train["date"]
-            .dt.dayofweek
-            .values
-        )
-        .mean()
-    )
-
-    weekly_values = (
-        wk.reindex(
-            train["date"]
-            .dt.dayofweek
-            .values
-        )
-        .values
-    )
-
-    detr2 = (
-        detr
-        - weekly_values
-    )
-
-    # Monthly seasonality
-    mo = (
-        pd.Series(detr2)
-        .groupby(
-            train["date"]
-            .dt.month
-            .values
-        )
-        .mean()
-    )
-
-    # Promotion effect
-    promo_mean = train.loc[
-        train["promo"] == 1,
-        "units_sold"
-    ].mean()
-
-    non_promo_mean = train.loc[
-        train["promo"] == 0,
-        "units_sold"
-    ].mean()
-
-    promo_effect = (
-        promo_mean
-        - non_promo_mean
-    )
-
-    return (
-        a,
-        b,
-        wk,
-        mo,
-        promo_effect
-    )
+    return coef
 
 
-def seasonal_predict(
-    a,
-    b,
-    wk,
-    mo,
-    promo_effect,
+def regression_predict(
     dates,
-    promo,
-    t0
+    coef,
+    promo=None,
+    start_t=0
 ):
 
     dates = pd.Series(
         pd.to_datetime(dates)
-    ).reset_index(drop=True)
-
-    t = np.arange(
-        t0,
-        t0 + len(dates)
     )
 
-    base = (
-        a
-        + b * t
+    if promo is None:
+        promo = np.zeros(
+            len(dates)
+        )
+
+    t = (
+        np.arange(len(dates))
+        + start_t
     )
 
     dow = dates.dt.dayofweek.values
 
     month = dates.dt.month.values
 
-    weekly_effect = (
-        wk.reindex(dow)
-        .values
-    )
-
-    monthly_effect = (
-        mo.reindex(month)
-        .values
-    )
-
-    prediction = (
-        base
-        + weekly_effect
-        + monthly_effect
-        + promo * promo_effect
-    )
-
-    return np.clip(
-        prediction,
-        0,
-        None
-    )
-
-
-# ============================================================
-# 5. LINEAR REGRESSION
-# ============================================================
-
-def regression_fit(train):
-
-    train = create_features(
-        train
-    )
-
-    X = train[
+    X = np.column_stack(
         [
-            "t",
-            "dow",
-            "month",
-            "promo"
+            np.ones(len(dates)),
+            t,
+            dow,
+            month,
+            promo,
         ]
-    ]
-
-    y = train[
-        "units_sold"
-    ]
-
-    model = LinearRegression()
-
-    model.fit(
-        X,
-        y
     )
 
-    return model
+    prediction = X @ coef
 
-
-def regression_predict(
-    model,
-    dates,
-    promo,
-    t0
-):
-
-    dates = pd.Series(
-        pd.to_datetime(dates)
-    ).reset_index(drop=True)
-
-    future = pd.DataFrame()
-
-    future["t"] = np.arange(
-        t0,
-        t0 + len(dates)
-    )
-
-    future["dow"] = (
-        dates.dt.dayofweek.values
-    )
-
-    future["month"] = (
-        dates.dt.month.values
-    )
-
-    future["promo"] = np.asarray(
-        promo
-    )
-
-    X = future[
-        [
-            "t",
-            "dow",
-            "month",
-            "promo"
-        ]
-    ]
-
-    prediction = model.predict(
-        X
-    )
-
-    return np.clip(
+    return np.maximum(
         prediction,
-        0,
-        None
+        0
     )
 
 
 # ============================================================
-# 6. METRICS
+# 6. 模型回测
 # ============================================================
 
-def calculate_mape(
-    actual,
-    predicted
-):
+model_results = []
 
-    actual = np.asarray(
-        actual
-    )
+sku_model_predictions = {}
 
-    predicted = np.asarray(
-        predicted
-    )
+for sku in sorted(df["sku"].unique()):
 
-    return float(
-        np.mean(
-            np.abs(
-                (
-                    actual
-                    - predicted
-                )
-                / np.clip(
-                    actual,
-                    1,
-                    None
-                )
-            )
-        )
-        * 100
-    )
+    sku_df = df[
+        df["sku"] == sku
+    ].sort_values("date").reset_index(drop=True)
 
+    train = sku_df.iloc[
+        :-BACKTEST_DAYS
+    ].copy()
 
-def calculate_rmse(
-    actual,
-    predicted
-):
-
-    actual = np.asarray(
-        actual
-    )
-
-    predicted = np.asarray(
-        predicted
-    )
-
-    return float(
-        np.sqrt(
-            np.mean(
-                (
-                    actual
-                    - predicted
-                ) ** 2
-            )
-        )
-    )
-
-
-# ============================================================
-# 7. MODEL BACKTESTING
-# ============================================================
-
-seasonal_mape = {}
-promo_mape = {}
-regression_mape = {}
-
-seasonal_rmse = {}
-promo_rmse = {}
-regression_rmse = {}
-
-
-for sku, g in df.groupby("sku"):
-
-    g = (
-        g
-        .reset_index(drop=True)
-    )
-
-    train = g.iloc[
-        :-HOLDOUT
-    ]
-
-    test = g.iloc[
-        -HOLDOUT:
-    ]
+    test = sku_df.iloc[
+        -BACKTEST_DAYS:
+    ].copy()
 
     # --------------------------------------------------------
-    # Seasonal baseline
+    # Model 1: Seasonal Baseline
     # --------------------------------------------------------
 
     (
-        a,
-        b,
-        wk,
-        mo,
-        promo_effect
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
     ) = seasonal_fit(
-        train
-    )
-
-    no_promo = np.zeros(
-        len(test)
+        train,
+        use_promo=False
     )
 
     pred_seasonal = seasonal_predict(
-        a,
-        b,
-        wk,
-        mo,
-        promo_effect,
         test["date"],
-        no_promo,
-        len(train)
+        trend_coef,
+        dow_factor,
+        month_factor
     )
 
-    seasonal_mape[sku] = (
-        calculate_mape(
-            test["units_sold"],
-            pred_seasonal
-        )
+    seasonal_mape = mape(
+        test["units_sold"],
+        pred_seasonal
     )
 
-    seasonal_rmse[sku] = (
-        calculate_rmse(
-            test["units_sold"],
-            pred_seasonal
-        )
+    seasonal_rmse = rmse(
+        test["units_sold"],
+        pred_seasonal
     )
 
     # --------------------------------------------------------
-    # Seasonal + Promotion
+    # Model 2: Seasonal + Promo
     # --------------------------------------------------------
+
+    (
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
+    ) = seasonal_fit(
+        train,
+        use_promo=True
+    )
 
     pred_promo = seasonal_predict(
-        a,
-        b,
-        wk,
-        mo,
-        promo_effect,
         test["date"],
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
+        test["promo"]
+    )
+
+    promo_mape = mape(
+        test["units_sold"],
+        pred_promo
+    )
+
+    promo_rmse = rmse(
+        test["units_sold"],
+        pred_promo
+    )
+
+    # --------------------------------------------------------
+    # Model 3: Linear Regression
+    # --------------------------------------------------------
+
+    regression_coef = regression_fit(
+        train
+    )
+
+    pred_regression = regression_predict(
+        test["date"],
+        regression_coef,
         test["promo"].values,
-        len(train)
+        start_t=len(train)
     )
 
-    promo_mape[sku] = (
-        calculate_mape(
-            test["units_sold"],
+    regression_mape = mape(
+        test["units_sold"],
+        pred_regression
+    )
+
+    regression_rmse = rmse(
+        test["units_sold"],
+        pred_regression
+    )
+
+    # --------------------------------------------------------
+    # 保存模型结果
+    # --------------------------------------------------------
+
+    models = {
+        "Seasonal Baseline": (
+            seasonal_mape,
+            seasonal_rmse,
+            pred_seasonal
+        ),
+        "Seasonal + Promo": (
+            promo_mape,
+            promo_rmse,
             pred_promo
+        ),
+        "Linear Regression": (
+            regression_mape,
+            regression_rmse,
+            pred_regression
+        ),
+    }
+
+    best_model = min(
+        models,
+        key=lambda x: models[x][0]
+    )
+
+    sku_model_predictions[sku] = {
+        "best_model": best_model,
+        "predictions": models,
+    }
+
+    for model_name, (
+        model_mape,
+        model_rmse,
+        _
+    ) in models.items():
+
+        model_results.append(
+            {
+                "sku": sku,
+                "model": model_name,
+                "mape": model_mape,
+                "rmse": model_rmse,
+                "is_best": model_name == best_model,
+            }
+        )
+
+
+model_results_df = pd.DataFrame(
+    model_results
+)
+
+model_results_df.to_csv(
+    OUTPUT_DIR / "model_comparison_by_sku.csv",
+    index=False
+)
+
+
+# ============================================================
+# 7. 总体模型比较
+# ============================================================
+
+overall_model_results = (
+    model_results_df
+    .groupby("model")
+    .agg(
+        mape=("mape", "mean"),
+        rmse=("rmse", "mean")
+    )
+    .reset_index()
+)
+
+overall_model_results.to_csv(
+    OUTPUT_DIR / "model_comparison.csv",
+    index=False
+)
+
+print()
+print("=" * 70)
+print("MODEL COMPARISON")
+print("=" * 70)
+
+for _, row in overall_model_results.iterrows():
+
+    print(
+        f"{row['model']:<25}"
+        f" MAPE: {row['mape']:.2f}%"
+        f"   RMSE: {row['rmse']:.2f}"
+    )
+
+print()
+
+for sku in sorted(sku_model_predictions):
+
+    print(
+        f"{sku}: "
+        f"{sku_model_predictions[sku]['best_model']}"
+    )
+
+
+# ============================================================
+# 8. 未来30天预测
+# ============================================================
+
+forecast_rows = []
+
+inventory_rows = []
+
+latest_date = df["date"].max()
+
+
+for sku in sorted(df["sku"].unique()):
+
+    sku_df = df[
+        df["sku"] == sku
+    ].sort_values("date").reset_index(drop=True)
+
+    train = sku_df.copy()
+
+    best_model = (
+        sku_model_predictions[sku]
+        ["best_model"]
+    )
+
+    future_dates = pd.date_range(
+        start=latest_date
+        + pd.Timedelta(days=1),
+        periods=FORECAST_HORIZON,
+        freq="D"
+    )
+
+    # --------------------------------------------------------
+    # Seasonal models
+    # --------------------------------------------------------
+
+    (
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
+    ) = seasonal_fit(
+        train,
+        use_promo=(
+            best_model == "Seasonal + Promo"
         )
     )
 
-    promo_rmse[sku] = (
-        calculate_rmse(
-            test["units_sold"],
-            pred_promo
-        )
+    # 假设未来没有已知促销活动
+    future_promo = np.zeros(
+        FORECAST_HORIZON
+    )
+
+    seasonal_forecast = seasonal_predict(
+        future_dates,
+        trend_coef,
+        dow_factor,
+        month_factor,
+        promo_effect,
+        future_promo
     )
 
     # --------------------------------------------------------
     # Linear Regression
     # --------------------------------------------------------
 
-    regression_model = regression_fit(
+    regression_coef = regression_fit(
         train
     )
 
-    pred_regression = regression_predict(
-        regression_model,
-        test["date"],
-        test["promo"].values,
-        len(train)
+    regression_forecast = regression_predict(
+        future_dates,
+        regression_coef,
+        future_promo,
+        start_t=len(train)
     )
 
-    regression_mape[sku] = (
-        calculate_mape(
-            test["units_sold"],
-            pred_regression
-        )
-    )
+    if best_model == "Linear Regression":
 
-    regression_rmse[sku] = (
-        calculate_rmse(
-            test["units_sold"],
-            pred_regression
-        )
-    )
-
-
-# ============================================================
-# 8. MODEL COMPARISON
-# ============================================================
-
-avg_seasonal_mape = np.mean(
-    list(
-        seasonal_mape.values()
-    )
-)
-
-avg_promo_mape = np.mean(
-    list(
-        promo_mape.values()
-    )
-)
-
-avg_regression_mape = np.mean(
-    list(
-        regression_mape.values()
-    )
-)
-
-avg_seasonal_rmse = np.mean(
-    list(
-        seasonal_rmse.values()
-    )
-)
-
-avg_promo_rmse = np.mean(
-    list(
-        promo_rmse.values()
-    )
-)
-
-avg_regression_rmse = np.mean(
-    list(
-        regression_rmse.values()
-    )
-)
-
-model_scores = {
-
-    "Seasonal Baseline":
-        avg_seasonal_mape,
-
-    "Seasonal + Promo":
-        avg_promo_mape,
-
-    "Linear Regression":
-        avg_regression_mape
-}
-
-best_model = min(
-    model_scores,
-    key=model_scores.get
-)
-
-
-# ============================================================
-# 9. PRINT MODEL RESULTS
-# ============================================================
-
-print("\n")
-
-print("=" * 65)
-
-print(
-    "MODEL COMPARISON"
-)
-
-print("=" * 65)
-
-print(
-    f"Seasonal Baseline      "
-    f"MAPE: {avg_seasonal_mape:.2f}%   "
-    f"RMSE: {avg_seasonal_rmse:.2f}"
-)
-
-print(
-    f"Seasonal + Promo       "
-    f"MAPE: {avg_promo_mape:.2f}%   "
-    f"RMSE: {avg_promo_rmse:.2f}"
-)
-
-print(
-    f"Linear Regression      "
-    f"MAPE: {avg_regression_mape:.2f}%   "
-    f"RMSE: {avg_regression_rmse:.2f}"
-)
-
-print("-" * 65)
-
-print(
-    f"Best model based on MAPE: "
-    f"{best_model}"
-)
-
-print("=" * 65)
-
-
-# ============================================================
-# 10. FINAL FORECAST
-# ============================================================
-
-fc_rows = []
-
-inventory_rows = []
-
-best_model_by_sku = {}
-
-
-for sku, g in df.groupby("sku"):
-
-    g = (
-        g
-        .reset_index(drop=True)
-    )
-
-    # --------------------------------------------------------
-    # Select best model for this SKU
-    # --------------------------------------------------------
-
-    sku_scores = {
-
-        "Seasonal Baseline":
-            seasonal_mape[sku],
-
-        "Seasonal + Promo":
-            promo_mape[sku],
-
-        "Linear Regression":
-            regression_mape[sku]
-    }
-
-    sku_best_model = min(
-        sku_scores,
-        key=sku_scores.get
-    )
-
-    best_model_by_sku[sku] = {
-
-        "best_model":
-            sku_best_model,
-
-        "mape":
-            round(
-                sku_scores[
-                    sku_best_model
-                ],
-                2
-            )
-    }
-
-    # --------------------------------------------------------
-    # Future dates
-    # --------------------------------------------------------
-
-    future_dates = pd.date_range(
-
-        g["date"].iloc[-1]
-        + pd.Timedelta(days=1),
-
-        periods=HORIZON,
-
-        freq="D"
-    )
-
-    # No known future promotions.
-    future_promo = np.zeros(
-        HORIZON
-    )
-
-    # --------------------------------------------------------
-    # Train models on all historical data
-    # --------------------------------------------------------
-
-    (
-        a,
-        b,
-        wk,
-        mo,
-        promo_effect
-    ) = seasonal_fit(g)
-
-    regression_model = regression_fit(
-        g
-    )
-
-    # --------------------------------------------------------
-    # Seasonal + Promo forecast
-    # --------------------------------------------------------
-
-    seasonal_forecast = (
-        seasonal_predict(
-            a,
-            b,
-            wk,
-            mo,
-            promo_effect,
-            future_dates,
-            future_promo,
-            len(g)
-        )
-    )
-
-    # --------------------------------------------------------
-    # Linear regression forecast
-    # --------------------------------------------------------
-
-    regression_forecast = (
-        regression_predict(
-            regression_model,
-            future_dates,
-            future_promo,
-            len(g)
-        )
-    )
-
-    # --------------------------------------------------------
-    # Select model
-    # --------------------------------------------------------
-
-    if sku_best_model in [
-        "Seasonal Baseline",
-        "Seasonal + Promo"
-    ]:
-
-        future_forecast = (
-            seasonal_forecast
-        )
+        future_forecast = regression_forecast
 
     else:
 
-        future_forecast = (
-            regression_forecast
-        )
+        future_forecast = seasonal_forecast
 
     # --------------------------------------------------------
-    # Save forecast
+    # 保存未来预测
     # --------------------------------------------------------
 
-    for d, v in zip(
+    for date, forecast in zip(
         future_dates,
         future_forecast
     ):
 
-        fc_rows.append(
-            (
-                sku,
-                d.date().isoformat(),
-                round(
-                    float(v),
-                    1
-                ),
-                sku_best_model
-            )
+        forecast_rows.append(
+            {
+                "sku": sku,
+                "date": date,
+                "forecast_units": forecast,
+                "model": best_model,
+            }
         )
 
-
     # ========================================================
-    # 11. DEMAND VOLATILITY
+    # 9. 库存基础参数
     # ========================================================
 
-    daily_std = float(
-        g["units_sold"]
-        .tail(90)
-        .std()
-    )
-
-    mean_daily = float(
+    avg_daily_demand = (
         future_forecast.mean()
     )
 
+    recent_demand = (
+        train["units_sold"]
+        .tail(60)
+    )
+
+    demand_std = (
+        recent_demand.std()
+    )
+
+    # Lead-time demand
+    lead_time_demand = (
+        avg_daily_demand
+        * LEAD_TIME_DAYS
+    )
+
+    # Lead-time demand standard deviation
+    lead_time_std = (
+        demand_std
+        * math.sqrt(LEAD_TIME_DAYS)
+    )
+
+    # Review-period demand
+    review_period_demand = (
+        avg_daily_demand
+        * REVIEW_PERIOD_DAYS
+    )
 
     # ========================================================
-    # 12. SERVICE LEVEL SCENARIOS
+    # 10. 不同 Service Level 的库存优化
     # ========================================================
 
     for service_level, z in SERVICE_LEVELS.items():
 
+        # ----------------------------------------------------
+        # Safety Stock
+        # ----------------------------------------------------
+
         safety_stock = (
             z
-            * daily_std
-            * np.sqrt(LEAD)
+            * lead_time_std
         )
 
-        lead_time_demand = (
-            mean_daily
-            * LEAD
-        )
+        # ----------------------------------------------------
+        # Reorder Point
+        # ----------------------------------------------------
 
         reorder_point = (
             lead_time_demand
             + safety_stock
         )
 
-        review_period = 7
+        # ----------------------------------------------------
+        # Order-up-to Level
+        # ----------------------------------------------------
 
-        order_up_to = (
-            mean_daily
-            * (
-                LEAD
-                + review_period
-            )
+        order_up_to_level = (
+            lead_time_demand
+            + review_period_demand
             + safety_stock
         )
 
+        # ----------------------------------------------------
+        # Average Inventory
+        # ----------------------------------------------------
+        #
+        # 周期库存 ≈ review period demand / 2
+        #
+        # 平均库存 =
+        # 周期库存 + 安全库存
+        # ----------------------------------------------------
 
-        # ====================================================
-        # 13. INVENTORY COST MODEL
-        # ====================================================
-
-        # Average cycle inventory approximation
         cycle_inventory = (
-            mean_daily
-            * review_period
-            / 2
+            review_period_demand / 2
         )
 
         average_inventory = (
@@ -827,164 +708,212 @@ for sku, g in df.groupby("sku"):
             + safety_stock
         )
 
-        # Holding cost
+        # ====================================================
+        # 11. Holding Cost
+        # ====================================================
+
         holding_cost = (
             average_inventory
-            * HOLDING_COST_PER_UNIT
+            * HOLDING_COST_PER_UNIT_PER_YEAR
         )
 
-        # Expected annual demand
-        annual_demand = (
-            mean_daily
-            * 365
-        )
+        # ====================================================
+        # 12. Ordering Cost
+        # ====================================================
+        #
+        # 每 REVIEW_PERIOD_DAYS 天进行一次补货
+        #
+        # 一年订单数量：
+        #
+        # 365 / REVIEW_PERIOD_DAYS
+        #
+        # ====================================================
 
-        # Approximate number of orders
         orders_per_year = (
-            annual_demand
-            / review_period
+            365
+            / REVIEW_PERIOD_DAYS
         )
 
         ordering_cost = (
             orders_per_year
-            * ORDERING_COST
+            * ORDERING_COST_PER_ORDER
         )
 
-        # Approximate stockout exposure.
-        # Higher safety stock reduces this proxy.
-        stockout_risk = max(
-            mean_daily
-            - safety_stock,
+        # ====================================================
+        # 13. Expected Shortage
+        # ====================================================
+        #
+        # 这里是这次最重要的修改。
+        #
+        # 假设 Lead-Time Demand 近似服从 Normal Distribution。
+        #
+        # Expected Shortage =
+        #
+        # sigma * [phi(z) - z * (1 - Phi(z))]
+        #
+        # phi = 标准正态分布 PDF
+        # Phi = 标准正态分布 CDF
+        #
+        # 这样我们就不再简单地用：
+        #
+        # mean_daily - safety_stock
+        #
+        # 来代表缺货。
+        # ====================================================
+
+        phi = (
+            math.exp(
+                -0.5 * z * z
+            )
+            / math.sqrt(
+                2 * math.pi
+            )
+        )
+
+        Phi = (
+            0.5
+            * (
+                1
+                + math.erf(
+                    z / math.sqrt(2)
+                )
+            )
+        )
+
+        expected_shortage_per_cycle = (
+            lead_time_std
+            * (
+                phi
+                - z * (1 - Phi)
+            )
+        )
+
+        expected_shortage_per_cycle = max(
+            expected_shortage_per_cycle,
             0
         )
 
+        # 一年大约有多少个补货周期
+        cycles_per_year = (
+            365
+            / REVIEW_PERIOD_DAYS
+        )
+
+        expected_annual_shortage = (
+            expected_shortage_per_cycle
+            * cycles_per_year
+        )
+
+        # ====================================================
+        # 14. Stockout Cost
+        # ====================================================
+
         stockout_cost = (
-            stockout_risk
+            expected_annual_shortage
             * STOCKOUT_COST_PER_UNIT
         )
 
-        total_cost = (
+        # ====================================================
+        # 15. Total Cost
+        # ====================================================
+
+        total_inventory_cost = (
             holding_cost
             + ordering_cost
             + stockout_cost
         )
 
         inventory_rows.append(
+            {
+                "sku": sku,
+                "category": sku_df["category"].iloc[0],
+                "service_level": service_level,
+                "model": best_model,
 
-            (
-                sku,
-                g["category"].iloc[0],
-                service_level,
-                mean_daily,
-                daily_std,
-                lead_time_demand,
-                safety_stock,
-                reorder_point,
-                order_up_to,
-                average_inventory,
-                holding_cost,
-                ordering_cost,
-                stockout_cost,
-                total_cost,
-                sku_best_model
-            )
+                "avg_daily_demand":
+                    avg_daily_demand,
+
+                "demand_std":
+                    demand_std,
+
+                "lead_time_demand":
+                    lead_time_demand,
+
+                "lead_time_std":
+                    lead_time_std,
+
+                "safety_stock":
+                    safety_stock,
+
+                "reorder_point":
+                    reorder_point,
+
+                "order_up_to_level":
+                    order_up_to_level,
+
+                "average_inventory":
+                    average_inventory,
+
+                "holding_cost":
+                    holding_cost,
+
+                "orders_per_year":
+                    orders_per_year,
+
+                "ordering_cost":
+                    ordering_cost,
+
+                "expected_shortage_per_cycle":
+                    expected_shortage_per_cycle,
+
+                "expected_annual_shortage":
+                    expected_annual_shortage,
+
+                "stockout_cost":
+                    stockout_cost,
+
+                "total_inventory_cost":
+                    total_inventory_cost,
+            }
         )
 
 
 # ============================================================
-# 14. INVENTORY DATAFRAME
+# 16. 保存 Forecast
 # ============================================================
 
-inventory = pd.DataFrame(
-
-    inventory_rows,
-
-    columns=[
-
-        "sku",
-
-        "category",
-
-        "service_level",
-
-        "avg_daily_demand",
-
-        "demand_std",
-
-        "lead_time_demand",
-
-        "safety_stock",
-
-        "reorder_point",
-
-        "order_up_to_level",
-
-        "average_inventory",
-
-        "holding_cost",
-
-        "ordering_cost",
-
-        "stockout_cost",
-
-        "total_inventory_cost",
-
-        "model"
-    ]
+forecast_df = pd.DataFrame(
+    forecast_rows
 )
 
-
-# ============================================================
-# 15. SAVE FORECAST
-# ============================================================
-
-forecast = pd.DataFrame(
-
-    fc_rows,
-
-    columns=[
-
-        "sku",
-
-        "date",
-
-        "forecast_units",
-
-        "model"
-    ]
-)
-
-forecast.to_csv(
-
-    BASE
-    / "forecast_30d.csv",
-
+forecast_df.to_csv(
+    OUTPUT_DIR / "forecast_30d.csv",
     index=False
 )
 
 
 # ============================================================
-# 16. SAVE INVENTORY
+# 17. 保存 Inventory Optimization
 # ============================================================
 
-inventory.to_csv(
+inventory_df = pd.DataFrame(
+    inventory_rows
+)
 
-    BASE
-    / "inventory_optimization.csv",
-
+inventory_df.to_csv(
+    OUTPUT_DIR / "inventory_optimization.csv",
     index=False
 )
 
 
 # ============================================================
-# 17. SERVICE LEVEL SUMMARY
+# 18. Service Level Analysis
 # ============================================================
 
-service_summary = (
-    inventory
+service_level_analysis = (
+    inventory_df
     .groupby("service_level")
     .agg(
-
         total_safety_stock=(
             "safety_stock",
             "sum"
@@ -1000,678 +929,110 @@ service_summary = (
             "sum"
         ),
 
+        total_holding_cost=(
+            "holding_cost",
+            "sum"
+        ),
+
+        total_ordering_cost=(
+            "ordering_cost",
+            "sum"
+        ),
+
+        total_expected_annual_shortage=(
+            "expected_annual_shortage",
+            "sum"
+        ),
+
+        total_stockout_cost=(
+            "stockout_cost",
+            "sum"
+        ),
+
         total_inventory_cost=(
             "total_inventory_cost",
             "sum"
-        )
+        ),
     )
     .reset_index()
 )
 
+# 保证服务水平按照 90 → 95 → 99 显示
 
-service_summary.to_csv(
+service_order = [
+    "90%",
+    "95%",
+    "99%"
+]
 
-    BASE
-    / "service_level_analysis.csv",
+service_level_analysis[
+    "service_level"
+] = pd.Categorical(
+    service_level_analysis[
+        "service_level"
+    ],
+    categories=service_order,
+    ordered=True
+)
 
+service_level_analysis = (
+    service_level_analysis
+    .sort_values("service_level")
+)
+
+service_level_analysis.to_csv(
+    OUTPUT_DIR / "service_level_analysis.csv",
     index=False
 )
 
 
 # ============================================================
-# 18. MODEL COMPARISON CSV
+# 19. 输出结果
 # ============================================================
 
-comparison_rows = []
+print()
+print("=" * 70)
+print("SERVICE LEVEL ANALYSIS")
+print("=" * 70)
 
-for sku in sorted(
-    df["sku"].unique()
-):
-
-    comparison_rows.append(
-
-        (
-            sku,
-
-            seasonal_mape[sku],
-
-            promo_mape[sku],
-
-            regression_mape[sku]
-        )
+print(
+    service_level_analysis[
+        [
+            "service_level",
+            "total_safety_stock",
+            "total_average_inventory",
+            "total_holding_cost",
+            "total_ordering_cost",
+            "total_expected_annual_shortage",
+            "total_stockout_cost",
+            "total_inventory_cost",
+        ]
+    ].to_string(
+        index=False,
+        float_format=lambda x: f"{x:,.2f}"
     )
-
-
-comparison = pd.DataFrame(
-
-    comparison_rows,
-
-    columns=[
-
-        "sku",
-
-        "seasonal_mape",
-
-        "promo_mape",
-
-        "regression_mape"
-    ]
-)
-
-comparison.to_csv(
-
-    BASE
-    / "model_comparison.csv",
-
-    index=False
 )
 
 
 # ============================================================
-# 19. MODEL COMPARISON CHART
+# 20. 输出95% Service Level 的 SKU 明细
 # ============================================================
 
-plt.figure(
-    figsize=(8, 4)
-)
+print()
+print("=" * 70)
+print("95% SERVICE LEVEL INVENTORY PLAN")
+print("=" * 70)
 
-model_names = [
-
-    "Seasonal",
-
-    "Seasonal + Promo",
-
-    "Linear Regression"
-]
-
-model_values = [
-
-    avg_seasonal_mape,
-
-    avg_promo_mape,
-
-    avg_regression_mape
-]
-
-plt.bar(
-
-    model_names,
-
-    model_values
-)
-
-plt.ylabel(
-    "Average MAPE (%)"
-)
-
-plt.title(
-    "Demand Forecasting Model Comparison"
-)
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "model_comparison.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 20. SERVICE LEVEL CHART
-# ============================================================
-
-plt.figure(
-    figsize=(8, 4)
-)
-
-plt.plot(
-
-    service_summary[
-        "service_level"
-    ],
-
-    service_summary[
-        "total_average_inventory"
-    ],
-
-    marker="o"
-)
-
-plt.xlabel(
-    "Service Level"
-)
-
-plt.ylabel(
-    "Total Average Inventory"
-)
-
-plt.title(
-    "Service Level vs Average Inventory"
-)
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "service_level_inventory.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 21. COST CHART
-# ============================================================
-
-plt.figure(
-    figsize=(8, 4)
-)
-
-plt.plot(
-
-    service_summary[
-        "service_level"
-    ],
-
-    service_summary[
-        "total_inventory_cost"
-    ],
-
-    marker="o"
-)
-
-plt.xlabel(
-    "Service Level"
-)
-
-plt.ylabel(
-    "Estimated Inventory Cost"
-)
-
-plt.title(
-    "Service Level vs Estimated Inventory Cost"
-)
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "service_level_cost.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 22. REORDER POINT CHART
-# ============================================================
-
-inventory_95 = inventory[
-    inventory[
-        "service_level"
-    ] == "95%"
+inventory_95 = inventory_df[
+    inventory_df["service_level"] == "95%"
 ].copy()
 
-ax = (
-
-    inventory_95
-    .set_index("sku")[
-        [
-            "lead_time_demand",
-            "safety_stock"
-        ]
-    ]
-
-    .plot(
-
-        kind="bar",
-
-        stacked=True,
-
-        figsize=(8, 4)
-    )
-)
-
-ax.set_ylabel(
-    "Units"
-)
-
-ax.set_title(
-    "95% Service Level: Reorder Point"
-)
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "reorder_points.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 23. FORECAST VS ACTUAL
-# ============================================================
-
-tot = (
-    df
-    .groupby("date")[
-        "units_sold"
-    ]
-    .sum()
-)
-
-total_df = tot.reset_index()
-
-t_total = np.arange(
-    len(total_df)
-)
-
-y_total = (
-    total_df[
-        "units_sold"
-    ]
-    .values
-    .astype(float)
-)
-
-b_total, a_total = np.polyfit(
-    t_total,
-    y_total,
-    1
-)
-
-detr_total = (
-    y_total
-    - (
-        a_total
-        + b_total * t_total
-    )
-)
-
-wk_total = (
-    pd.Series(
-        detr_total
-    )
-    .groupby(
-        total_df[
-            "date"
-        ]
-        .dt.dayofweek
-        .values
-    )
-    .mean()
-)
-
-mo_total = (
-    pd.Series(
-
-        detr_total
-
-        - wk_total.reindex(
-
-            total_df[
-                "date"
-            ]
-            .dt.dayofweek
-            .values
-        )
-        .values
-    )
-
-    .groupby(
-
-        total_df[
-            "date"
-        ]
-        .dt.month
-        .values
-    )
-
-    .mean()
-)
-
-future_total_dates = pd.date_range(
-
-    tot.index[-1]
-    + pd.Timedelta(days=1),
-
-    periods=HORIZON,
-
-    freq="D"
-)
-
-future_total_t = np.arange(
-
-    len(tot),
-
-    len(tot)
-    + HORIZON
-)
-
-future_total_forecast = (
-
-    a_total
-
-    + b_total
-    * future_total_t
-
-    + wk_total.reindex(
-        future_total_dates.dayofweek
-    ).values
-
-    + mo_total.reindex(
-        future_total_dates.month
-    ).values
-)
-
-future_total_forecast = np.clip(
-
-    future_total_forecast,
-
-    0,
-
-    None
-)
-
-plt.figure(
-    figsize=(8, 3.2)
-)
-
-plt.plot(
-
-    tot.index[-120:],
-
-    tot.values[-120:],
-
-    label="Actual"
-)
-
-plt.plot(
-
-    future_total_dates,
-
-    future_total_forecast,
-
-    "--",
-
-    label="Forecast (30d)"
-)
-
-plt.title(
-    "Total Daily Demand: Actual + Forecast"
-)
-
-plt.legend()
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "forecast_vs_actual.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 24. WEEKLY SEASONALITY
-# ============================================================
-
-weekly = (
-
-    df.assign(
-
-        dow=df[
-            "date"
-        ]
-        .dt.day_name()
-        .str[:3]
-    )
-
-    .groupby(
-
-        df[
-            "date"
-        ]
-        .dt.dayofweek
-    )[
-        "units_sold"
-    ]
-
-    .mean()
-)
-
-ax = weekly.plot(
-
-    kind="bar",
-
-    figsize=(8, 4)
-)
-
-ax.set_xticklabels(
-
-    [
-
-        "Mon",
-
-        "Tue",
-
-        "Wed",
-
-        "Thu",
-
-        "Fri",
-
-        "Sat",
-
-        "Sun"
-
-    ],
-
-    rotation=0
-)
-
-ax.set_ylabel(
-    "Average Units"
-)
-
-ax.set_title(
-    "Weekly Demand Seasonality"
-)
-
-plt.tight_layout()
-
-plt.savefig(
-
-    BASE
-    / "weekly_seasonality.png"
-)
-
-plt.close()
-
-
-# ============================================================
-# 25. SAVE RESULTS JSON
-# ============================================================
-
-results = {
-
-    "skus":
-        int(
-            df["sku"].nunique()
-        ),
-
-    "days":
-        int(
-            df["date"].nunique()
-        ),
-
-    "model_comparison": {
-
-        "Seasonal Baseline":
-            round(
-                float(
-                    avg_seasonal_mape
-                ),
-                2
-            ),
-
-        "Seasonal + Promo":
-            round(
-                float(
-                    avg_promo_mape
-                ),
-                2
-            ),
-
-        "Linear Regression":
-            round(
-                float(
-                    avg_regression_mape
-                ),
-                2
-            )
-    },
-
-    "best_overall_model":
-        best_model,
-
-    "best_model_by_sku":
-        best_model_by_sku,
-
-    "forecast_horizon_days":
-        HORIZON,
-
-    "lead_time_days":
-        LEAD,
-
-    "service_levels_tested":
-        list(
-            SERVICE_LEVELS.keys()
-        ),
-
-    "cost_assumptions": {
-
-        "holding_cost_per_unit":
-            HOLDING_COST_PER_UNIT,
-
-        "stockout_cost_per_unit":
-            STOCKOUT_COST_PER_UNIT,
-
-        "ordering_cost":
-            ORDERING_COST
-    }
-}
-
-
-(
-    BASE
-    / "results.json"
-).write_text(
-
-    json.dumps(
-
-        results,
-
-        indent=2
-    )
-)
-
-
-# ============================================================
-# 26. PRINT FINAL RESULTS
-# ============================================================
-
-print("\n")
-
-print("=" * 70)
-
 print(
-    "MODEL COMPARISON"
-)
-
-print("=" * 70)
-
-print(
-
-    f"Seasonal Baseline      "
-    f"MAPE: {avg_seasonal_mape:.2f}%   "
-    f"RMSE: {avg_seasonal_rmse:.2f}"
-
-)
-
-print(
-
-    f"Seasonal + Promo       "
-    f"MAPE: {avg_promo_mape:.2f}%   "
-    f"RMSE: {avg_promo_rmse:.2f}"
-
-)
-
-print(
-
-    f"Linear Regression      "
-    f"MAPE: {avg_regression_mape:.2f}%   "
-    f"RMSE: {avg_regression_rmse:.2f}"
-
-)
-
-print("-" * 70)
-
-print(
-
-    f"Best model: {best_model}"
-
-)
-
-print("=" * 70)
-
-
-print("\n")
-
-print("=" * 70)
-
-print(
-    "SERVICE LEVEL ANALYSIS"
-)
-
-print("=" * 70)
-
-print(
-    service_summary
-    .to_string(
-        index=False
-    )
-)
-
-print("=" * 70)
-
-
-print("\n")
-
-print("=" * 70)
-
-print(
-    "95% SERVICE LEVEL INVENTORY PLAN"
-)
-
-print("=" * 70)
-
-print(
-
     inventory_95[
         [
             "sku",
             "category",
+            "model",
             "avg_daily_demand",
             "demand_std",
             "lead_time_demand",
@@ -1679,66 +1040,216 @@ print(
             "reorder_point",
             "order_up_to_level",
             "average_inventory",
+            "holding_cost",
+            "stockout_cost",
             "total_inventory_cost",
-            "model"
         ]
-    ]
-
-    .to_string(
-        index=False
+    ].to_string(
+        index=False,
+        float_format=lambda x: f"{x:,.2f}"
     )
 )
 
+
+# ============================================================
+# 21. 画 Service Level vs Total Cost
+# ============================================================
+
+plt.figure(
+    figsize=(9, 6)
+)
+
+plt.plot(
+    service_level_analysis["service_level"].astype(str),
+    service_level_analysis["total_inventory_cost"],
+    marker="o"
+)
+
+plt.xlabel(
+    "Service Level"
+)
+
+plt.ylabel(
+    "Total Inventory Cost"
+)
+
+plt.title(
+    "Service Level vs Total Inventory Cost"
+)
+
+plt.grid(
+    True,
+    alpha=0.3
+)
+
+plt.tight_layout()
+
+plt.savefig(
+    OUTPUT_DIR / "service_level_vs_cost.png",
+    dpi=150
+)
+
+plt.close()
+
+
+# ============================================================
+# 22. 画 Holding / Stockout / Ordering Cost
+# ============================================================
+
+plt.figure(
+    figsize=(9, 6)
+)
+
+x = np.arange(
+    len(service_level_analysis)
+)
+
+width = 0.25
+
+plt.bar(
+    x - width,
+    service_level_analysis[
+        "total_holding_cost"
+    ],
+    width,
+    label="Holding Cost"
+)
+
+plt.bar(
+    x,
+    service_level_analysis[
+        "total_stockout_cost"
+    ],
+    width,
+    label="Stockout Cost"
+)
+
+plt.bar(
+    x + width,
+    service_level_analysis[
+        "total_ordering_cost"
+    ],
+    width,
+    label="Ordering Cost"
+)
+
+plt.xticks(
+    x,
+    service_level_analysis[
+        "service_level"
+    ].astype(str)
+)
+
+plt.xlabel(
+    "Service Level"
+)
+
+plt.ylabel(
+    "Cost"
+)
+
+plt.title(
+    "Inventory Cost Components"
+)
+
+plt.legend()
+
+plt.tight_layout()
+
+plt.savefig(
+    OUTPUT_DIR / "inventory_cost_components.png",
+    dpi=150
+)
+
+plt.close()
+
+
+# ============================================================
+# 23. 保存 JSON Summary
+# ============================================================
+
+best_overall_model = (
+    overall_model_results
+    .sort_values("mape")
+    .iloc[0]
+)
+
+summary = {
+    "skus": int(
+        df["sku"].nunique()
+    ),
+
+    "days": int(
+        df["date"].nunique()
+    ),
+
+    "backtest_days":
+        BACKTEST_DAYS,
+
+    "forecast_horizon_days":
+        FORECAST_HORIZON,
+
+    "lead_time_days":
+        LEAD_TIME_DAYS,
+
+    "review_period_days":
+        REVIEW_PERIOD_DAYS,
+
+    "best_overall_model":
+        best_overall_model["model"],
+
+    "best_overall_mape":
+        round(
+            float(
+                best_overall_model["mape"]
+            ),
+            2
+        ),
+
+    "holding_cost_per_unit_per_year":
+        HOLDING_COST_PER_UNIT_PER_YEAR,
+
+    "stockout_cost_per_unit":
+        STOCKOUT_COST_PER_UNIT,
+
+    "ordering_cost_per_order":
+        ORDERING_COST_PER_ORDER,
+}
+
+with open(
+    OUTPUT_DIR / "results.json",
+    "w",
+    encoding="utf-8"
+) as f:
+
+    json.dump(
+        summary,
+        f,
+        ensure_ascii=False,
+        indent=2
+    )
+
+
+# ============================================================
+# 24. 完成
+# ============================================================
+
+print()
+print("=" * 70)
+print("DONE")
 print("=" * 70)
 
-
-print("\n")
-
 print(
-    "Generated files:"
+    f"Results saved to: {OUTPUT_DIR}"
 )
 
-print(
-    "- forecast_30d.csv"
-)
+print()
+print("Generated files:")
 
-print(
-    "- inventory_optimization.csv"
-)
+for file in sorted(
+    OUTPUT_DIR.iterdir()
+):
 
-print(
-    "- service_level_analysis.csv"
-)
-
-print(
-    "- model_comparison.csv"
-)
-
-print(
-    "- model_comparison.png"
-)
-
-print(
-    "- service_level_inventory.png"
-)
-
-print(
-    "- service_level_cost.png"
-)
-
-print(
-    "- reorder_points.png"
-)
-
-print(
-    "- forecast_vs_actual.png"
-)
-
-print(
-    "- weekly_seasonality.png"
-)
-
-print(
-    "- results.json"
-)
-
+    print(
+        f" - {file.name}"
+    )
