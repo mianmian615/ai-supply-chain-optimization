@@ -1,17 +1,48 @@
 {
   "skus": 6,
   "days": 730,
-  "backtest_mape_by_sku": {
-    "SKU-01": 8.2,
-    "SKU-02": 7.5,
-    "SKU-03": 9.4,
-    "SKU-04": 7.1,
-    "SKU-05": 8.6,
-    "SKU-06": 8.5
+  "model_comparison": {
+    "Seasonal Baseline": 8.71,
+    "Seasonal + Promo": 8.21,
+    "Linear Regression": 15.32
   },
-  "avg_mape": 8.2,
+  "best_overall_model": "Seasonal + Promo",
+  "best_model_by_sku": {
+    "SKU-01": {
+      "best_model": "Seasonal + Promo",
+      "mape": 8.15
+    },
+    "SKU-02": {
+      "best_model": "Seasonal + Promo",
+      "mape": 7.5
+    },
+    "SKU-03": {
+      "best_model": "Seasonal + Promo",
+      "mape": 9.42
+    },
+    "SKU-04": {
+      "best_model": "Seasonal + Promo",
+      "mape": 7.12
+    },
+    "SKU-05": {
+      "best_model": "Seasonal Baseline",
+      "mape": 8.6
+    },
+    "SKU-06": {
+      "best_model": "Seasonal + Promo",
+      "mape": 8.45
+    }
+  },
   "forecast_horizon_days": 30,
   "lead_time_days": 7,
-  "service_level": "95%",
-  "total_reorder_units": 3617
+  "service_levels_tested": [
+    "90%",
+    "95%",
+    "99%"
+  ],
+  "cost_assumptions": {
+    "holding_cost_per_unit": 0.5,
+    "stockout_cost_per_unit": 5.0,
+    "ordering_cost": 100.0
+  }
 }
