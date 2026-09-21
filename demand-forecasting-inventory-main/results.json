@@ -6,6 +6,11 @@
     "Seasonal + Promo": 8.21,
     "Linear Regression": 15.32
   },
+  "model_rmse": {
+    "Seasonal Baseline": 9.62,
+    "Seasonal + Promo": 7.77,
+    "Linear Regression": 13.6
+  },
   "best_overall_model": "Seasonal + Promo",
   "best_model_by_sku": {
     "SKU-01": {
@@ -35,14 +40,16 @@
   },
   "forecast_horizon_days": 30,
   "lead_time_days": 7,
+  "service_level": "95%",
   "service_levels_tested": [
     "90%",
     "95%",
     "99%"
   ],
   "cost_assumptions": {
-    "holding_cost_per_unit": 0.5,
+    "holding_cost_per_unit_per_year": 5.0,
     "stockout_cost_per_unit": 5.0,
-    "ordering_cost": 100.0
-  }
+    "ordering_cost_per_order": 100.0
+  },
+  "total_reorder_units_95": 3616
 }
