@@ -74,7 +74,9 @@ model_name_mapping = {
     "regression_mape": "Linear Regression"
 }
 
-model_long_df["model"] = model_long_df["model"].map(model_name_mapping)
+model_long_df["model"] = model_long_df["model"].map(
+    model_name_mapping
+)
 
 
 # ============================================================
@@ -101,33 +103,27 @@ page = st.sidebar.radio(
 
 if page == "Overview / 总览":
 
-    st.title("AI-Driven Supply Chain Demand Forecasting & Inventory Optimization")
+    st.title(
+        "AI-Driven Supply Chain Demand Forecasting & Inventory Optimization"
+    )
 
-    st.subheader("AI驱动的供应链需求预测与库存优化系统")
+    st.subheader(
+        "AI驱动的供应链需求预测与库存优化系统"
+    )
 
     st.markdown(
         """
         This system combines demand forecasting, inventory optimization,
         and model comparison to support supply chain planning decisions.
 
-        本系统结合需求预测、库存优化和模型比较，为供应链计划决策提供支持。
+        本系统结合需求预测、库存优化和模型比较，
+        为供应链计划决策提供支持。
         """
     )
-
-    # --------------------------------------------------------
-    # KPI CALCULATIONS
-    # --------------------------------------------------------
 
     sku_count = forecast_df["sku"].nunique()
 
     forecast_days = forecast_df["date"].nunique()
-
-    best_model_row = (
-        model_long_df.groupby("model")["mape"]
-        .mean()
-        .sort_values()
-        .iloc[0]
-    )
 
     best_model_name = (
         model_long_df.groupby("model")["mape"]
@@ -142,10 +138,6 @@ if page == "Overview / 总览":
         .sort_values()
         .iloc[0]
     )
-
-    # --------------------------------------------------------
-    # KPI CARDS
-    # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -175,11 +167,9 @@ if page == "Overview / 总览":
 
     st.divider()
 
-    # --------------------------------------------------------
-    # MODEL SUMMARY
-    # --------------------------------------------------------
-
-    st.subheader("Model Performance / 模型表现")
+    st.subheader(
+        "Model Performance / 模型表现"
+    )
 
     model_summary = (
         model_long_df
@@ -207,7 +197,9 @@ if page == "Overview / 总览":
 
 elif page == "Demand Forecast / 需求预测":
 
-    st.title("Demand Forecast / 需求预测")
+    st.title(
+        "Demand Forecast / 需求预测"
+    )
 
     selected_sku = st.selectbox(
         "Select SKU / 选择 SKU",
@@ -222,11 +214,9 @@ elif page == "Demand Forecast / 需求预测":
         f"{selected_sku} Forecast / {selected_sku} 需求预测"
     )
 
-    # --------------------------------------------------------
-    # FORECAST CHART
-    # --------------------------------------------------------
-
-    fig, ax = plt.subplots(figsize=(12, 5))
+    fig, ax = plt.subplots(
+        figsize=(12, 5)
+    )
 
     for model_name in sku_forecast["model"].unique():
 
@@ -242,6 +232,7 @@ elif page == "Demand Forecast / 需求预测":
 
     ax.set_xlabel("Date")
     ax.set_ylabel("Forecast Units")
+
     ax.set_title(
         f"{selected_sku} - 30 Day Demand Forecast"
     )
@@ -252,11 +243,9 @@ elif page == "Demand Forecast / 需求预测":
 
     st.pyplot(fig)
 
-    # --------------------------------------------------------
-    # MODEL PERFORMANCE FOR SKU
-    # --------------------------------------------------------
-
-    st.subheader("Model Performance / 模型表现")
+    st.subheader(
+        "Model Performance / 模型表现"
+    )
 
     sku_model_performance = model_long_df[
         model_long_df["sku"] == selected_sku
@@ -273,6 +262,7 @@ elif page == "Demand Forecast / 需求预测":
     )
 
     best_sku_model = sku_model_performance.iloc[0]["model"]
+
     best_sku_mape = sku_model_performance.iloc[0]["mape"]
 
     st.success(
@@ -288,27 +278,19 @@ elif page == "Demand Forecast / 需求预测":
 
 elif page == "Inventory Optimization / 库存优化":
 
-    st.title("Inventory Optimization / 库存优化")
-
-    # --------------------------------------------------------
-    # SKU SELECTOR
-    # --------------------------------------------------------
+    st.title(
+        "Inventory Optimization / 库存优化"
+    )
 
     selected_sku = st.selectbox(
         "Select SKU / 选择 SKU",
         sorted(inventory_df["sku"].unique())
     )
 
-    # --------------------------------------------------------
-    # SERVICE LEVEL SELECTOR
-    #
-    # IMPORTANT:
-    # inventory_recommendations.csv stores service_level
-    # as strings such as "95%", not numeric 0.95.
-    # --------------------------------------------------------
-
     available_service_levels = sorted(
-        inventory_df["service_level"].dropna().unique()
+        inventory_df["service_level"]
+        .dropna()
+        .unique()
     )
 
     selected_service = st.selectbox(
@@ -321,18 +303,10 @@ elif page == "Inventory Optimization / 库存优化":
         )
     )
 
-    # --------------------------------------------------------
-    # FILTER INVENTORY DATA
-    # --------------------------------------------------------
-
     sku_inventory = inventory_df[
         (inventory_df["sku"] == selected_sku) &
         (inventory_df["service_level"] == selected_service)
     ].copy()
-
-    # --------------------------------------------------------
-    # DISPLAY RESULTS
-    # --------------------------------------------------------
 
     if sku_inventory.empty:
 
@@ -341,18 +315,9 @@ elif page == "Inventory Optimization / 库存优化":
             "this SKU and service level."
         )
 
-        st.info(
-            f"Selected SKU: {selected_sku} | "
-            f"Selected Service Level: {selected_service}"
-        )
-
     else:
 
         row = sku_inventory.iloc[0]
-
-        # ----------------------------------------------------
-        # KPI CARDS
-        # ----------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
@@ -382,11 +347,9 @@ elif page == "Inventory Optimization / 库存优化":
 
         st.divider()
 
-        # ----------------------------------------------------
-        # INVENTORY DETAILS
-        # ----------------------------------------------------
-
-        st.subheader("Inventory Policy / 库存策略")
+        st.subheader(
+            "Inventory Policy / 库存策略"
+        )
 
         col1, col2 = st.columns(2)
 
@@ -446,37 +409,31 @@ elif page == "Inventory Optimization / 库存优化":
 
         st.divider()
 
-        # ----------------------------------------------------
-        # COST BREAKDOWN
-        # ----------------------------------------------------
-
-        st.subheader("Inventory Cost / 库存成本")
+        st.subheader(
+            "Inventory Cost / 库存成本"
+        )
 
         cost_col1, cost_col2, cost_col3, cost_col4 = st.columns(4)
 
         with cost_col1:
-
             st.metric(
                 "Holding Cost",
                 f"${row['holding_cost']:,.2f}"
             )
 
         with cost_col2:
-
             st.metric(
                 "Ordering Cost",
                 f"${row['ordering_cost']:,.2f}"
             )
 
         with cost_col3:
-
             st.metric(
                 "Stockout Cost",
                 f"${row['stockout_cost']:,.2f}"
             )
 
         with cost_col4:
-
             st.metric(
                 "Total Inventory Cost",
                 f"${row['total_inventory_cost']:,.2f}"
@@ -484,7 +441,9 @@ elif page == "Inventory Optimization / 库存优化":
 
         st.divider()
 
-        st.subheader("Model Used / 使用模型")
+        st.subheader(
+            "Model Used / 使用模型"
+        )
 
         st.success(
             f"{row['model']}"
@@ -497,7 +456,9 @@ elif page == "Inventory Optimization / 库存优化":
 
 elif page == "Model Comparison / 模型比较":
 
-    st.title("Model Comparison / 模型比较")
+    st.title(
+        "Model Comparison / 模型比较"
+    )
 
     st.markdown(
         """
@@ -510,10 +471,6 @@ elif page == "Model Comparison / 模型比较":
         系统比较三种需求预测方法。
         """
     )
-
-    # --------------------------------------------------------
-    # OVERALL MODEL PERFORMANCE
-    # --------------------------------------------------------
 
     overall_model_performance = (
         model_long_df
@@ -533,11 +490,9 @@ elif page == "Model Comparison / 模型比较":
         hide_index=True
     )
 
-    # --------------------------------------------------------
-    # CHART
-    # --------------------------------------------------------
-
-    fig, ax = plt.subplots(figsize=(10, 5))
+    fig, ax = plt.subplots(
+        figsize=(10, 5)
+    )
 
     ax.bar(
         overall_model_performance["model"],
@@ -546,7 +501,10 @@ elif page == "Model Comparison / 模型比较":
 
     ax.set_ylabel("MAPE (%)")
     ax.set_xlabel("Model")
-    ax.set_title("Average MAPE by Forecasting Model")
+
+    ax.set_title(
+        "Average MAPE by Forecasting Model"
+    )
 
     ax.grid(
         axis="y",
@@ -554,10 +512,6 @@ elif page == "Model Comparison / 模型比较":
     )
 
     st.pyplot(fig)
-
-    # --------------------------------------------------------
-    # SKU-LEVEL MODEL COMPARISON
-    # --------------------------------------------------------
 
     st.subheader(
         "SKU-Level Model Comparison / SKU级模型比较"
@@ -584,6 +538,7 @@ elif page == "Model Comparison / 模型比较":
     )
 
     best_model = sku_comparison.iloc[0]["model"]
+
     best_mape = sku_comparison.iloc[0]["mape"]
 
     st.success(
@@ -600,28 +555,112 @@ elif page == "Model Comparison / 模型比较":
 elif page == "AI Supply Chain Copilot / AI供应链助手":
 
     st.title(
-        "AI Supply Chain Copilot / AI供应链助手"
+        "🤖 AI Supply Chain Copilot"
+    )
+
+    st.subheader(
+        "AI供应链助手"
     )
 
     st.markdown(
         """
-        This module will eventually allow users to ask supply chain
-        questions in natural language.
+        Ask questions about demand forecasting, inventory,
+        service levels, and supply chain planning.
 
-        未来该模块可以让用户通过自然语言询问供应链问题。
-
-        Example questions / 示例问题:
-
-        - Which SKU has the highest safety stock?
-        - Which model performs best?
-        - What is the reorder point for SKU-01?
-        - What happens if the service level increases from 95% to 99%?
-        - Which SKU has the highest inventory cost?
+        你可以询问需求预测、库存、服务水平以及供应链计划相关问题。
         """
     )
 
-    st.info(
-        "AI Copilot will be connected to forecasting and inventory "
-        "calculation tools in the next development phase."
+    # --------------------------------------------------------
+    # INITIALIZE CHAT HISTORY
+    # --------------------------------------------------------
+
+    if "copilot_messages" not in st.session_state:
+
+        st.session_state.copilot_messages = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Hello! I'm your Supply Chain Copilot. 👋\n\n"
+                    "你好！我是你的供应链 AI 助手。\n\n"
+                    "You can ask me questions such as:\n"
+                    "- Which SKU has the highest safety stock?\n"
+                    "- What is the reorder point for SKU-01?\n"
+                    "- Which forecasting model performs best?\n"
+                    "- What happens if the service level changes?\n\n"
+                    "目前我处于 Demo Mode。下一阶段会接入 LLM。"
+                )
+            }
+        ]
+
+    # --------------------------------------------------------
+    # DISPLAY CHAT HISTORY
+    # --------------------------------------------------------
+
+    for message in st.session_state.copilot_messages:
+
+        with st.chat_message(message["role"]):
+
+            st.markdown(
+                message["content"]
+            )
+
+    # --------------------------------------------------------
+    # CHAT INPUT
+    # --------------------------------------------------------
+
+    user_question = st.chat_input(
+        "Ask a supply chain question... / 输入你的供应链问题..."
     )
+
+    if user_question:
+
+        # ----------------------------------------------------
+        # SAVE USER MESSAGE
+        # ----------------------------------------------------
+
+        st.session_state.copilot_messages.append(
+            {
+                "role": "user",
+                "content": user_question
+            }
+        )
+
+        with st.chat_message("user"):
+
+            st.markdown(
+                user_question
+            )
+
+        # ----------------------------------------------------
+        # DEMO RESPONSE
+        #
+        # IMPORTANT:
+        # This is intentionally NOT using an LLM yet.
+        # ----------------------------------------------------
+
+        demo_response = (
+            "🤖 **Demo Mode**\n\n"
+            "I received your question:\n\n"
+            f"> {user_question}\n\n"
+            "The AI Supply Chain Copilot is currently running "
+            "without an LLM.\n\n"
+            "在下一阶段，我们会接入 LLM，让 Copilot "
+            "真正理解你的自然语言问题。\n\n"
+            "After that, Tool Calling will allow the AI to "
+            "query forecasting and inventory functions."
+        )
+
+        st.session_state.copilot_messages.append(
+            {
+                "role": "assistant",
+                "content": demo_response
+            }
+        )
+
+        with st.chat_message("assistant"):
+
+            st.markdown(
+                demo_response
+            )
 
