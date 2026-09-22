@@ -1,862 +1,627 @@
 
-import json
-from pathlib import Path
-
-import pandas as pd
 import streamlit as st
-import plotly.express as px
+import pandas as pd
+import matplotlib.pyplot as plt
+from pathlib import Path
 
 
 # ============================================================
-# 1. Page Configuration
-# 页面配置
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="AI Supply Chain | AI供应链",
+    page_title="AI Supply Chain Demand Forecasting & Inventory Optimization",
     page_icon="📦",
-    layout="wide",
+    layout="wide"
 )
 
 
 # ============================================================
-# 2. File Paths
-# 文件路径
+# PATHS
 # ============================================================
 
 BASE = Path(__file__).resolve().parent
 
-FORECAST_FILE = BASE / "forecast_30d.csv"
-INVENTORY_FILE = BASE / "inventory_recommendations.csv"
-MODEL_FILE = BASE / "model_comparison.csv"
-SERVICE_FILE = BASE / "service_level_analysis.csv"
-RESULTS_FILE = BASE / "results.json"
-
 
 # ============================================================
-# 3. Load Data
-# 加载数据
+# LOAD DATA
 # ============================================================
 
 @st.cache_data
 def load_data():
 
-    forecast = pd.read_csv(FORECAST_FILE)
-
-    inventory = pd.read_csv(INVENTORY_FILE)
-
-    model_comparison = pd.read_csv(MODEL_FILE)
-
-    service_level = pd.read_csv(SERVICE_FILE)
-
-    results = {}
-
-    if RESULTS_FILE.exists():
-
-        with open(
-            RESULTS_FILE,
-            "r",
-            encoding="utf-8"
-        ) as f:
-
-            results = json.load(f)
-
-    return (
-        forecast,
-        inventory,
-        model_comparison,
-        service_level,
-        results,
+    forecast_df = pd.read_csv(
+        BASE / "forecast_30d.csv",
+        parse_dates=["date"]
     )
 
+    inventory_df = pd.read_csv(
+        BASE / "inventory_recommendations.csv"
+    )
 
-forecast_df, inventory_df, model_df, service_df, results = load_data()
+    model_df = pd.read_csv(
+        BASE / "model_comparison.csv"
+    )
+
+    service_df = pd.read_csv(
+        BASE / "service_level_analysis.csv"
+    )
+
+    return forecast_df, inventory_df, model_df, service_df
+
+
+forecast_df, inventory_df, model_df, service_df = load_data()
 
 
 # ============================================================
-# 4. Data Preparation
-# 数据预处理
+# MODEL COMPARISON DATA
 # ============================================================
 
-forecast_df["date"] = pd.to_datetime(
-    forecast_df["date"]
-)
-
-skus = sorted(
-    forecast_df["sku"].unique()
-)
-
-
-# ============================================================
-# 5. Convert Model Comparison Data
-# 将模型比较CSV从宽表转换成长表
-# ============================================================
-
-model_long_df = pd.DataFrame()
-
-if not model_df.empty:
-
-    required_model_columns = [
-        "sku",
+model_long_df = model_df.melt(
+    id_vars=["sku"],
+    value_vars=[
         "seasonal_mape",
         "promo_mape",
-        "regression_mape",
-    ]
-
-    if all(
-        col in model_df.columns
-        for col in required_model_columns
-    ):
-
-        model_long_df = model_df.melt(
-            id_vars=["sku"],
-            value_vars=[
-                "seasonal_mape",
-                "promo_mape",
-                "regression_mape",
-            ],
-            var_name="model",
-            value_name="mape",
-        )
-
-        model_name_mapping = {
-
-            "seasonal_mape":
-                "Seasonal Baseline",
-
-            "promo_mape":
-                "Seasonal + Promo",
-
-            "regression_mape":
-                "Linear Regression",
-        }
-
-        model_long_df["model"] = (
-            model_long_df["model"]
-            .map(model_name_mapping)
-        )
-
-
-# ============================================================
-# 6. Determine Best Model
-# 确定最佳模型
-# ============================================================
-
-best_model = "Seasonal + Promo"
-best_mape = 8.21
-
-if not model_long_df.empty:
-
-    grouped_models = (
-        model_long_df
-        .groupby("model")["mape"]
-        .mean()
-        .sort_values()
-    )
-
-    if not grouped_models.empty:
-
-        best_model = grouped_models.index[0]
-
-        best_mape = grouped_models.iloc[0]
-
-
-# ============================================================
-# 7. Sidebar
-# 侧边栏
-# ============================================================
-
-st.sidebar.title(
-    "📦 Supply Chain Control Center"
+        "regression_mape"
+    ],
+    var_name="model",
+    value_name="mape"
 )
 
-st.sidebar.caption(
-    "供应链控制中心"
-)
+model_name_mapping = {
+    "seasonal_mape": "Seasonal Baseline",
+    "promo_mape": "Seasonal + Promo",
+    "regression_mape": "Linear Regression"
+}
 
-st.sidebar.markdown(
-    "### Navigation（导航）"
-)
+model_long_df["model"] = model_long_df["model"].map(model_name_mapping)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+st.sidebar.title("📦 Supply Chain System")
 
 page = st.sidebar.radio(
-    "Select Page（选择页面）",
+    "Navigation / 页面导航",
     [
-        "Overview（总览）",
-        "Demand Forecast（需求预测）",
-        "Inventory Optimization（库存优化）",
-        "Model Comparison（模型比较）",
-    ],
-)
-
-st.sidebar.markdown("---")
-
-selected_sku = st.sidebar.selectbox(
-    "Select SKU（选择产品）",
-    skus,
+        "Overview / 总览",
+        "Demand Forecast / 需求预测",
+        "Inventory Optimization / 库存优化",
+        "Model Comparison / 模型比较",
+        "AI Supply Chain Copilot / AI供应链助手"
+    ]
 )
 
 
 # ============================================================
-# 8. Overview
-# 总览页面
+# OVERVIEW
 # ============================================================
 
-if page == "Overview（总览）":
+if page == "Overview / 总览":
 
-    st.title(
-        "📦 AI-Driven Supply Chain Demand Forecasting & Inventory Optimization"
-    )
+    st.title("AI-Driven Supply Chain Demand Forecasting & Inventory Optimization")
 
-    st.caption(
-        "AI驱动的供应链需求预测与库存优化系统"
-    )
+    st.subheader("AI驱动的供应链需求预测与库存优化系统")
 
     st.markdown(
         """
-        This dashboard integrates demand forecasting,
-        model comparison, and inventory optimization
-        into one supply chain decision-support system.
+        This system combines demand forecasting, inventory optimization,
+        and model comparison to support supply chain planning decisions.
 
-        本系统将需求预测、模型比较和库存优化整合到
-        一个供应链决策支持平台中。
+        本系统结合需求预测、库存优化和模型比较，为供应链计划决策提供支持。
         """
     )
 
-    st.markdown("---")
+    # --------------------------------------------------------
+    # KPI CALCULATIONS
+    # --------------------------------------------------------
+
+    sku_count = forecast_df["sku"].nunique()
+
+    forecast_days = forecast_df["date"].nunique()
+
+    best_model_row = (
+        model_long_df.groupby("model")["mape"]
+        .mean()
+        .sort_values()
+        .iloc[0]
+    )
+
+    best_model_name = (
+        model_long_df.groupby("model")["mape"]
+        .mean()
+        .sort_values()
+        .index[0]
+    )
+
+    best_model_mape = (
+        model_long_df.groupby("model")["mape"]
+        .mean()
+        .sort_values()
+        .iloc[0]
+    )
 
     # --------------------------------------------------------
-    # KPI Cards
+    # KPI CARDS
     # --------------------------------------------------------
 
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
-
         st.metric(
             "SKUs",
-            len(skus),
-            help="Number of products / 产品数量",
+            sku_count
         )
 
     with col2:
-
         st.metric(
-            "Best Model",
-            str(best_model),
-            help="Lowest average MAPE / 平均MAPE最低",
+            "Forecast Horizon",
+            f"{forecast_days} days"
         )
 
     with col3:
-
         st.metric(
-            "Best MAPE",
-            f"{best_mape:.2f}%",
-            help="Mean Absolute Percentage Error / 平均绝对百分比误差",
+            "Best Model",
+            best_model_name
         )
 
     with col4:
-
         st.metric(
-            "Forecast Horizon",
-            "30 Days",
-            help="Future forecast period / 未来预测周期",
+            "Average MAPE",
+            f"{best_model_mape:.2f}%"
         )
 
-    st.markdown("---")
+    st.divider()
 
     # --------------------------------------------------------
-    # Overall Demand Forecast
-    # 总体需求预测
+    # MODEL SUMMARY
     # --------------------------------------------------------
 
-    st.subheader(
-        "📈 Overall Demand Forecast（总体需求预测）"
+    st.subheader("Model Performance / 模型表现")
+
+    model_summary = (
+        model_long_df
+        .groupby("model")["mape"]
+        .mean()
+        .reset_index()
+        .sort_values("mape")
     )
 
-    overall_forecast = (
-        forecast_df
-        .groupby(
-            "date",
-            as_index=False
-        )["forecast_units"]
-        .sum()
-    )
-
-    fig = px.line(
-        overall_forecast,
-        x="date",
-        y="forecast_units",
-        title="Total Forecasted Demand（总体预测需求）",
-        labels={
-            "date": "Date（日期）",
-            "forecast_units":
-                "Forecast Units（预测需求量）",
-        },
-    )
-
-    fig.update_layout(
-        hovermode="x unified"
-    )
-
-    st.plotly_chart(
-        fig,
+    st.dataframe(
+        model_summary,
         use_container_width=True,
+        hide_index=True
     )
 
-    st.markdown("---")
-
-    # --------------------------------------------------------
-    # Model Summary
-    # --------------------------------------------------------
-
-    st.subheader(
-        "🤖 Model Summary（模型摘要）"
+    st.info(
+        "MAPE = Mean Absolute Percentage Error，"
+        "用于衡量预测值与实际值之间的平均百分比误差。"
     )
-
-    if not model_long_df.empty:
-
-        model_summary = (
-            model_long_df
-            .groupby("model")["mape"]
-            .mean()
-            .reset_index()
-            .sort_values("mape")
-        )
-
-        model_summary = model_summary.rename(
-            columns={
-                "model": "Model（模型）",
-                "mape": "Average MAPE（平均MAPE）",
-            }
-        )
-
-        st.dataframe(
-            model_summary,
-            use_container_width=True,
-        )
-
-    else:
-
-        st.info(
-            "No model comparison data available. "
-            "暂无模型比较数据。"
-        )
 
 
 # ============================================================
-# 9. Demand Forecast
-# 需求预测页面
+# DEMAND FORECAST
 # ============================================================
 
-elif page == "Demand Forecast（需求预测）":
+elif page == "Demand Forecast / 需求预测":
 
-    st.title(
-        "📈 Demand Forecast（需求预测）"
-    )
+    st.title("Demand Forecast / 需求预测")
 
-    st.caption(
-        f"SKU: {selected_sku} | "
-        "30-Day Demand Forecast（30天需求预测）"
+    selected_sku = st.selectbox(
+        "Select SKU / 选择 SKU",
+        sorted(forecast_df["sku"].unique())
     )
 
     sku_forecast = forecast_df[
         forecast_df["sku"] == selected_sku
     ].copy()
 
-    sku_forecast = sku_forecast.sort_values(
-        "date"
-    )
-
-    # --------------------------------------------------------
-    # Forecast Chart
-    # --------------------------------------------------------
-
-    fig = px.line(
-        sku_forecast,
-        x="date",
-        y="forecast_units",
-        color="model",
-        markers=True,
-        title=(
-            f"{selected_sku} Demand Forecast"
-            "（需求预测）"
-        ),
-        labels={
-            "date": "Date（日期）",
-            "forecast_units":
-                "Forecast Units（预测需求量）",
-            "model": "Model（模型）",
-        },
-    )
-
-    fig.update_layout(
-        hovermode="x unified"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-    )
-
-    # --------------------------------------------------------
-    # Forecast Statistics
-    # --------------------------------------------------------
-
     st.subheader(
-        "📊 Forecast Statistics（预测统计）"
+        f"{selected_sku} Forecast / {selected_sku} 需求预测"
     )
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        avg_forecast = (
-            sku_forecast["forecast_units"]
-            .mean()
-        )
-
-        st.metric(
-            "Average Forecast",
-            f"{avg_forecast:.1f}",
-            help="Average daily forecast / 平均每日预测需求",
-        )
-
-    with col2:
-
-        max_forecast = (
-            sku_forecast["forecast_units"]
-            .max()
-        )
-
-        st.metric(
-            "Peak Forecast",
-            f"{max_forecast:.1f}",
-            help="Maximum forecast / 最大预测需求",
-        )
-
-    with col3:
-
-        min_forecast = (
-            sku_forecast["forecast_units"]
-            .min()
-        )
-
-        st.metric(
-            "Minimum Forecast",
-            f"{min_forecast:.1f}",
-            help="Minimum forecast / 最低预测需求",
-        )
-
-    st.markdown("---")
-
     # --------------------------------------------------------
-    # Forecast Table
+    # FORECAST CHART
     # --------------------------------------------------------
 
-    st.subheader(
-        "📋 Forecast Data（预测数据）"
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    for model_name in sku_forecast["model"].unique():
+
+        model_data = sku_forecast[
+            sku_forecast["model"] == model_name
+        ]
+
+        ax.plot(
+            model_data["date"],
+            model_data["forecast_units"],
+            label=model_name
+        )
+
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Forecast Units")
+    ax.set_title(
+        f"{selected_sku} - 30 Day Demand Forecast"
     )
 
-    display_forecast = sku_forecast.copy()
+    ax.legend()
 
-    display_forecast["date"] = (
-        display_forecast["date"]
-        .dt.strftime("%Y-%m-%d")
+    ax.grid(alpha=0.3)
+
+    st.pyplot(fig)
+
+    # --------------------------------------------------------
+    # MODEL PERFORMANCE FOR SKU
+    # --------------------------------------------------------
+
+    st.subheader("Model Performance / 模型表现")
+
+    sku_model_performance = model_long_df[
+        model_long_df["sku"] == selected_sku
+    ].copy()
+
+    sku_model_performance = sku_model_performance.sort_values(
+        "mape"
     )
 
     st.dataframe(
-        display_forecast,
+        sku_model_performance,
         use_container_width=True,
+        hide_index=True
+    )
+
+    best_sku_model = sku_model_performance.iloc[0]["model"]
+    best_sku_mape = sku_model_performance.iloc[0]["mape"]
+
+    st.success(
+        f"Best model for {selected_sku}: "
+        f"{best_sku_model} "
+        f"(MAPE: {best_sku_mape:.2f}%)"
     )
 
 
 # ============================================================
-# 10. Inventory Optimization
-# 库存优化页面
+# INVENTORY OPTIMIZATION
 # ============================================================
 
-elif page == "Inventory Optimization（库存优化）":
+elif page == "Inventory Optimization / 库存优化":
 
-    st.title(
-        "📦 Inventory Optimization（库存优化）"
-    )
+    st.title("Inventory Optimization / 库存优化")
 
-    st.caption(
-        f"SKU: {selected_sku} | "
-        "Inventory Planning（库存计划）"
+    # --------------------------------------------------------
+    # SKU SELECTOR
+    # --------------------------------------------------------
+
+    selected_sku = st.selectbox(
+        "Select SKU / 选择 SKU",
+        sorted(inventory_df["sku"].unique())
     )
 
     # --------------------------------------------------------
-    # Service Level Selector
+    # SERVICE LEVEL SELECTOR
+    #
+    # IMPORTANT:
+    # inventory_recommendations.csv stores service_level
+    # as strings such as "95%", not numeric 0.95.
     # --------------------------------------------------------
 
-    service_level_options = [
-        0.90,
-        0.95,
-        0.99,
-    ]
+    available_service_levels = sorted(
+        inventory_df["service_level"].dropna().unique()
+    )
 
     selected_service = st.selectbox(
-        "Select Service Level（选择服务水平）",
-        service_level_options,
-        index=1,
-        format_func=lambda x: f"{x:.0%}",
+        "Service Level / 服务水平",
+        available_service_levels,
+        index=(
+            available_service_levels.index("95%")
+            if "95%" in available_service_levels
+            else 0
+        )
     )
 
     # --------------------------------------------------------
-    # Service Level Summary
+    # FILTER INVENTORY DATA
     # --------------------------------------------------------
 
-    selected_service_row = service_df[
-        service_df["service_level"].round(2)
-        == round(selected_service, 2)
-    ]
+    sku_inventory = inventory_df[
+        (inventory_df["sku"] == selected_sku) &
+        (inventory_df["service_level"] == selected_service)
+    ].copy()
 
-    if not selected_service_row.empty:
+    # --------------------------------------------------------
+    # DISPLAY RESULTS
+    # --------------------------------------------------------
 
-        service_row = selected_service_row.iloc[0]
+    if sku_inventory.empty:
+
+        st.warning(
+            "No inventory recommendation found for "
+            "this SKU and service level."
+        )
+
+        st.info(
+            f"Selected SKU: {selected_sku} | "
+            f"Selected Service Level: {selected_service}"
+        )
+
+    else:
+
+        row = sku_inventory.iloc[0]
+
+        # ----------------------------------------------------
+        # KPI CARDS
+        # ----------------------------------------------------
 
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-
             st.metric(
-                "Total Safety Stock",
-                f"{service_row['total_safety_stock']:.0f}",
+                "Safety Stock",
+                f"{row['safety_stock']:.1f}"
             )
 
         with col2:
-
             st.metric(
-                "Total Reorder Point",
-                f"{service_row['total_reorder_point']:.0f}",
+                "Reorder Point",
+                f"{row['reorder_point']:.1f}"
             )
 
         with col3:
-
             st.metric(
-                "Average Inventory",
-                f"{service_row['total_average_inventory']:.0f}",
+                "Order-Up-To Level",
+                f"{row['order_up_to_level']:.1f}"
             )
 
         with col4:
+            st.metric(
+                "EOQ",
+                f"{row['eoq']:.1f}"
+            )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # INVENTORY DETAILS
+        # ----------------------------------------------------
+
+        st.subheader("Inventory Policy / 库存策略")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            st.write(
+                f"**Average Daily Demand:** "
+                f"{row['avg_daily_demand']:.2f}"
+            )
+
+            st.write(
+                f"**Demand Standard Deviation:** "
+                f"{row['demand_std']:.2f}"
+            )
+
+            st.write(
+                f"**Annual Demand:** "
+                f"{row['annual_demand']:.0f}"
+            )
+
+            st.write(
+                f"**Lead-Time Demand:** "
+                f"{row['lead_time_demand']:.2f}"
+            )
+
+            st.write(
+                f"**Safety Stock:** "
+                f"{row['safety_stock']:.2f}"
+            )
+
+        with col2:
+
+            st.write(
+                f"**Reorder Point:** "
+                f"{row['reorder_point']:.2f}"
+            )
+
+            st.write(
+                f"**Order-Up-To Level:** "
+                f"{row['order_up_to_level']:.2f}"
+            )
+
+            st.write(
+                f"**Average Inventory:** "
+                f"{row['average_inventory']:.2f}"
+            )
+
+            st.write(
+                f"**EOQ:** "
+                f"{row['eoq']:.2f}"
+            )
+
+            st.write(
+                f"**EOQ Order Interval:** "
+                f"{row['eoq_order_interval_days']:.2f} days"
+            )
+
+        st.divider()
+
+        # ----------------------------------------------------
+        # COST BREAKDOWN
+        # ----------------------------------------------------
+
+        st.subheader("Inventory Cost / 库存成本")
+
+        cost_col1, cost_col2, cost_col3, cost_col4 = st.columns(4)
+
+        with cost_col1:
+
+            st.metric(
+                "Holding Cost",
+                f"${row['holding_cost']:,.2f}"
+            )
+
+        with cost_col2:
+
+            st.metric(
+                "Ordering Cost",
+                f"${row['ordering_cost']:,.2f}"
+            )
+
+        with cost_col3:
+
+            st.metric(
+                "Stockout Cost",
+                f"${row['stockout_cost']:,.2f}"
+            )
+
+        with cost_col4:
 
             st.metric(
                 "Total Inventory Cost",
-                f"{service_row['total_inventory_cost']:.0f}",
+                f"${row['total_inventory_cost']:,.2f}"
             )
 
-    st.markdown("---")
+        st.divider()
+
+        st.subheader("Model Used / 使用模型")
+
+        st.success(
+            f"{row['model']}"
+        )
+
+
+# ============================================================
+# MODEL COMPARISON
+# ============================================================
+
+elif page == "Model Comparison / 模型比较":
+
+    st.title("Model Comparison / 模型比较")
+
+    st.markdown(
+        """
+        The system compares three forecasting approaches:
+
+        - Seasonal Baseline
+        - Seasonal + Promotion
+        - Linear Regression
+
+        系统比较三种需求预测方法。
+        """
+    )
 
     # --------------------------------------------------------
-    # SKU Inventory Recommendation
+    # OVERALL MODEL PERFORMANCE
     # --------------------------------------------------------
 
-    sku_inventory = inventory_df[
-        (
-            inventory_df["sku"]
-            == selected_sku
-        )
-        &
-        (
-            inventory_df["service_level"].round(2)
-            == round(selected_service, 2)
-        )
+    overall_model_performance = (
+        model_long_df
+        .groupby("model")["mape"]
+        .mean()
+        .reset_index()
+        .sort_values("mape")
+    )
+
+    st.subheader(
+        "Average MAPE by Model / 各模型平均 MAPE"
+    )
+
+    st.dataframe(
+        overall_model_performance,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # --------------------------------------------------------
+    # CHART
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    ax.bar(
+        overall_model_performance["model"],
+        overall_model_performance["mape"]
+    )
+
+    ax.set_ylabel("MAPE (%)")
+    ax.set_xlabel("Model")
+    ax.set_title("Average MAPE by Forecasting Model")
+
+    ax.grid(
+        axis="y",
+        alpha=0.3
+    )
+
+    st.pyplot(fig)
+
+    # --------------------------------------------------------
+    # SKU-LEVEL MODEL COMPARISON
+    # --------------------------------------------------------
+
+    st.subheader(
+        "SKU-Level Model Comparison / SKU级模型比较"
+    )
+
+    selected_sku = st.selectbox(
+        "Select SKU / 选择 SKU",
+        sorted(model_long_df["sku"].unique()),
+        key="model_comparison_sku"
+    )
+
+    sku_comparison = model_long_df[
+        model_long_df["sku"] == selected_sku
     ].copy()
 
-    if not sku_inventory.empty:
+    sku_comparison = sku_comparison.sort_values(
+        "mape"
+    )
 
-        row = sku_inventory.iloc[0]
+    st.dataframe(
+        sku_comparison,
+        use_container_width=True,
+        hide_index=True
+    )
 
-        st.subheader(
-            f"🎯 {selected_sku} Inventory Recommendation"
-        )
+    best_model = sku_comparison.iloc[0]["model"]
+    best_mape = sku_comparison.iloc[0]["mape"]
 
-        st.caption(
-            "库存决策建议"
-        )
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "Safety Stock（安全库存）",
-                f"{row['safety_stock']:.0f}",
-            )
-
-        with col2:
-
-            st.metric(
-                "Reorder Point（再订货点）",
-                f"{row['reorder_point']:.0f}",
-            )
-
-        with col3:
-
-            st.metric(
-                "Order-Up-To Level（补货上限）",
-                f"{row['order_up_to_level']:.0f}",
-            )
-
-        st.markdown("---")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-
-            st.metric(
-                "EOQ（经济订货量）",
-                f"{row['eoq']:.0f}",
-            )
-
-        with col2:
-
-            st.metric(
-                "EOQ Interval",
-                f"{row['eoq_order_interval_days']:.1f} days",
-                help=(
-                    "Theoretical economic ordering interval / "
-                    "理论经济订货间隔"
-                ),
-            )
-
-        with col3:
-
-            st.metric(
-                "Daily Demand",
-                f"{row['avg_daily_demand']:.1f}",
-            )
-
-        st.markdown("---")
-
-        # ----------------------------------------------------
-        # Detailed Inventory Table
-        # ----------------------------------------------------
-
-        st.subheader(
-            "📋 Inventory Planning Details"
-            "（库存计划明细）"
-        )
-
-        columns_to_show = [
-
-            "sku",
-
-            "category",
-
-            "service_level",
-
-            "avg_daily_demand",
-
-            "demand_std",
-
-            "annual_demand",
-
-            "lead_time_demand",
-
-            "safety_stock",
-
-            "reorder_point",
-
-            "order_up_to_level",
-
-            "average_inventory",
-
-            "holding_cost",
-
-            "ordering_cost",
-
-            "expected_shortage_per_cycle",
-
-            "expected_annual_shortage",
-
-            "stockout_cost",
-
-            "total_inventory_cost",
-
-            "eoq",
-
-            "eoq_orders_per_year",
-
-            "eoq_order_interval_days",
-
-            "model",
-        ]
-
-        available_columns = [
-            col
-            for col in columns_to_show
-            if col in sku_inventory.columns
-        ]
-
-        st.dataframe(
-            sku_inventory[available_columns],
-            use_container_width=True,
-        )
-
-    else:
-
-        st.warning(
-            "No inventory recommendation found for this "
-            "SKU and service level."
-            "该SKU和服务水平没有找到库存建议。"
-        )
+    st.success(
+        f"Best model for {selected_sku}: "
+        f"{best_model} "
+        f"(MAPE: {best_mape:.2f}%)"
+    )
 
 
 # ============================================================
-# 11. Model Comparison
-# 模型比较页面
+# AI SUPPLY CHAIN COPILOT
 # ============================================================
 
-elif page == "Model Comparison（模型比较）":
+elif page == "AI Supply Chain Copilot / AI供应链助手":
 
     st.title(
-        "🤖 Model Comparison（模型比较）"
+        "AI Supply Chain Copilot / AI供应链助手"
     )
 
-    st.caption(
-        "Compare forecasting models using MAPE"
-        "（使用MAPE比较预测模型）"
+    st.markdown(
+        """
+        This module will eventually allow users to ask supply chain
+        questions in natural language.
+
+        未来该模块可以让用户通过自然语言询问供应链问题。
+
+        Example questions / 示例问题:
+
+        - Which SKU has the highest safety stock?
+        - Which model performs best?
+        - What is the reorder point for SKU-01?
+        - What happens if the service level increases from 95% to 99%?
+        - Which SKU has the highest inventory cost?
+        """
     )
 
-    if not model_long_df.empty:
-
-        # ----------------------------------------------------
-        # Overall Model Performance
-        # ----------------------------------------------------
-
-        st.subheader(
-            "📊 Overall Model Performance"
-            "（总体模型表现）"
-        )
-
-        model_summary = (
-            model_long_df
-            .groupby("model")
-            .agg(
-                MAPE=("mape", "mean")
-            )
-            .reset_index()
-            .sort_values("MAPE")
-        )
-
-        st.dataframe(
-            model_summary,
-            use_container_width=True,
-        )
-
-        # ----------------------------------------------------
-        # MAPE Chart
-        # ----------------------------------------------------
-
-        fig_mape = px.bar(
-            model_summary,
-            x="model",
-            y="MAPE",
-            title=(
-                "Average MAPE by Model"
-                "（各模型平均MAPE）"
-            ),
-            labels={
-                "model": "Model（模型）",
-                "MAPE": "MAPE (%)",
-            },
-        )
-
-        st.plotly_chart(
-            fig_mape,
-            use_container_width=True,
-        )
-
-        st.markdown("---")
-
-        # ----------------------------------------------------
-        # SKU-Level Model Comparison
-        # ----------------------------------------------------
-
-        st.subheader(
-            f"🔎 {selected_sku} Model Comparison"
-        )
-
-        st.caption(
-            "SKU级别模型比较"
-        )
-
-        sku_model_df = model_long_df[
-            model_long_df["sku"]
-            == selected_sku
-        ].copy()
-
-        if not sku_model_df.empty:
-
-            st.dataframe(
-                sku_model_df,
-                use_container_width=True,
-            )
-
-            fig_sku = px.bar(
-                sku_model_df,
-                x="model",
-                y="mape",
-                title=(
-                    f"{selected_sku} MAPE Comparison"
-                    "（MAPE比较）"
-                ),
-                labels={
-                    "model": "Model（模型）",
-                    "mape": "MAPE (%)",
-                },
-            )
-
-            st.plotly_chart(
-                fig_sku,
-                use_container_width=True,
-            )
-
-            # ------------------------------------------------
-            # Best Model for Selected SKU
-            # ------------------------------------------------
-
-            best_sku_row = (
-                sku_model_df
-                .sort_values("mape")
-                .iloc[0]
-            )
-
-            st.success(
-                f"Best model for {selected_sku}: "
-                f"{best_sku_row['model']} | "
-                f"MAPE: {best_sku_row['mape']:.2f}%"
-            )
-
-        else:
-
-            st.info(
-                "No model comparison data for this SKU."
-                "该SKU没有模型比较数据。"
-            )
-
-    else:
-
-        st.warning(
-            "Model comparison data is unavailable."
-            "模型比较数据不可用。"
-        )
-
-
-# ============================================================
-# 12. Sidebar Footer
-# 侧边栏页脚
-# ============================================================
-
-st.sidebar.markdown("---")
-
-st.sidebar.caption(
-    "AI-Driven Supply Chain Demand Forecasting & Inventory Optimization"
-)
-
-st.sidebar.caption(
-    "AI驱动的供应链需求预测与库存优化系统"
-)
+    st.info(
+        "AI Copilot will be connected to forecasting and inventory "
+        "calculation tools in the next development phase."
+    )
 
