@@ -3,7 +3,11 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
+import os
+from openai import OpenAI
 
+if "copilot_messages" not in st.session_state:
+    st.session_state.copilot_messages = []
 
 # ============================================================
 # PAGE CONFIG
@@ -22,7 +26,16 @@ st.set_page_config(
 
 BASE = Path(__file__).resolve().parent
 
+# ============================================================
+# QWEN LLM CLIENT
+# ============================================================
 
+client = OpenAI(
+    api_key=os.getenv("DASHSCOPE_API_KEY"),
+    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+)
+
+MODEL_NAME = "qwen3.8-max"
 # ============================================================
 # LOAD DATA
 # ============================================================
@@ -639,28 +652,85 @@ elif page == "AI Supply Chain Copilot / AI供应链助手":
         # This is intentionally NOT using an LLM yet.
         # ----------------------------------------------------
 
-        demo_response = (
-            "🤖 **Demo Mode**\n\n"
-            "I received your question:\n\n"
-            f"> {user_question}\n\n"
-            "The AI Supply Chain Copilot is currently running "
-            "without an LLM.\n\n"
-            "在下一阶段，我们会接入 LLM，让 Copilot "
-            "真正理解你的自然语言问题。\n\n"
-            "After that, Tool Calling will allow the AI to "
-            "query forecasting and inventory functions."
-        )
+# ----------------------------------------------------
+# CALL QWEN LLM
+# ----------------------------------------------------
 
-        st.session_state.copilot_messages.append(
+try:
+
+    # Build conversation history
+    messages = [
+        {
+            "role": "system",
+            "content": """
+ You are an AI Supply Chain Copilot.
+
+ 你的角色是一个专业的供应链 AI 助手。
+
+ Language rules:
+ 1. If the user asks in Chinese, answer primarily in Chinese.
+ 2. If the user asks in English, answer primarily in English.
+ 3. If the user mixes Chinese and English, you may respond bilingually when useful.
+ 4. Use clear, professional supply chain terminology.
+ 5. Do not invent data from the user's forecasting or inventory system.
+ 6. If specific project data is required but no tool/data has been provided,
+    clearly state that you currently cannot access that data.
+
+ You can explain concepts such as:
+ - Demand Forecasting
+ - MAPE
+ - RMSE
+ - Safety Stock
+ - Reorder Point
+ - Order-Up-To Level
+ - EOQ
+ - Service Level
+ - Inventory Cost
+ - Supply Chain Planning
+
+ You are currently in the LLM-only phase.
+ You do NOT yet have access to the project's CSV data or calculation tools.
+ """
+        }
+    ]
+
+    # Add previous conversation history
+    for message in st.session_state.copilot_messages:
+        messages.append(
             {
-                "role": "assistant",
-                "content": demo_response
+                "role": message["role"],
+                "content": message["content"]
             }
         )
 
-        with st.chat_message("assistant"):
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=messages,
+        temperature=0.3
+    )
 
-            st.markdown(
-                demo_response
-            )
+    assistant_response = response.choices[0].message.content
+
+except Exception as e:
+
+    assistant_response = (
+        "⚠️ LLM 调用失败。\n\n"
+        f"Error: `{str(e)}`"
+    )
+
+# ----------------------------------------------------
+# SAVE ASSISTANT RESPONSE
+# ----------------------------------------------------
+
+st.session_state.copilot_messages.append(
+    {
+        "role": "assistant",
+        "content": assistant_response
+    }
+)
+
+with st.chat_message("assistant"):
+    st.markdown(
+        assistant_response
+    )
 
