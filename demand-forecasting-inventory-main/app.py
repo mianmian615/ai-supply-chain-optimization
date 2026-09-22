@@ -565,7 +565,16 @@ elif page == "Model Comparison / 模型比较":
 # AI SUPPLY CHAIN COPILOT
 # ============================================================
 
+# ============================================================
+# AI SUPPLY CHAIN COPILOT
+# ============================================================
+
 elif page == "AI Supply Chain Copilot / AI供应链助手":
+
+    from ai_tools import (
+        get_inventory_data,
+        get_model_performance
+    )
 
     st.title(
         "🤖 AI Supply Chain Copilot"
@@ -596,12 +605,13 @@ elif page == "AI Supply Chain Copilot / AI供应链助手":
                 "content": (
                     "Hello! I'm your Supply Chain Copilot. 👋\n\n"
                     "你好！我是你的供应链 AI 助手。\n\n"
-                    "You can ask me questions such as:\n"
+                    "现在我可以读取项目中的预测和库存分析数据。\n\n"
+                    "例如你可以问：\n"
+                    "- SKU-01 的补货点是多少？\n"
+                    "- SKU-01 的安全库存是多少？\n"
+                    "- SKU-01 适合什么预测模型？\n"
                     "- Which SKU has the highest safety stock?\n"
-                    "- What is the reorder point for SKU-01?\n"
-                    "- Which forecasting model performs best?\n"
-                    "- What happens if the service level changes?\n\n"
-                    "目前我处于 Demo Mode。下一阶段会接入 LLM。"
+                    "- What is the EOQ for SKU-01?"
                 )
             }
         ]
@@ -646,91 +656,247 @@ elif page == "AI Supply Chain Copilot / AI供应链助手":
             )
 
         # ----------------------------------------------------
-        # DEMO RESPONSE
-        #
-        # IMPORTANT:
-        # This is intentionally NOT using an LLM yet.
+        # SYSTEM PROMPT
         # ----------------------------------------------------
 
-# ----------------------------------------------------
-# CALL QWEN LLM
-# ----------------------------------------------------
-
-try:
-
-    # Build conversation history
-    messages = [
-        {
-            "role": "system",
-            "content": """
- You are an AI Supply Chain Copilot.
-
- 你的角色是一个专业的供应链 AI 助手。
-
- Language rules:
- 1. If the user asks in Chinese, answer primarily in Chinese.
- 2. If the user asks in English, answer primarily in English.
- 3. If the user mixes Chinese and English, you may respond bilingually when useful.
- 4. Use clear, professional supply chain terminology.
- 5. Do not invent data from the user's forecasting or inventory system.
- 6. If specific project data is required but no tool/data has been provided,
-    clearly state that you currently cannot access that data.
-
- You can explain concepts such as:
- - Demand Forecasting
- - MAPE
- - RMSE
- - Safety Stock
- - Reorder Point
- - Order-Up-To Level
- - EOQ
- - Service Level
- - Inventory Cost
- - Supply Chain Planning
-
- You are currently in the LLM-only phase.
- You do NOT yet have access to the project's CSV data or calculation tools.
- """
-        }
-    ]
-
-    # Add previous conversation history
-    for message in st.session_state.copilot_messages:
-        messages.append(
+        messages = [
             {
-                "role": message["role"],
-                "content": message["content"]
+                "role": "system",
+                "content": """
+You are an AI Supply Chain Copilot.
+
+你的角色是一个专业的供应链 AI 助手。
+
+Language rules:
+1. If the user asks in Chinese, answer primarily in Chinese.
+2. If the user asks in English, answer primarily in English.
+3. If the user mixes Chinese and English, respond bilingually when useful.
+4. Use clear and professional supply chain terminology.
+
+IMPORTANT DATA RULES:
+
+You have access to project data through Python tools.
+
+When the user asks about specific SKU data,
+DO NOT guess or invent values.
+
+Use the available tools to retrieve the actual project data.
+
+Available project data includes:
+
+- Demand forecasting results
+- Forecasting model performance
+- Safety stock
+- Reorder point
+- Order-up-to level
+- EOQ
+- Average inventory
+- Inventory cost
+- Service level
+- Demand statistics
+
+When answering numerical questions about the project,
+use the values returned by the tools.
+
+For conceptual questions such as
+"What is safety stock?",
+you may answer directly without using a tool.
+
+If the requested project data cannot be found,
+clearly state that the data is unavailable.
+
+Do not fabricate project data.
+"""
+            }
+        ]
+
+        # ----------------------------------------------------
+        # ADD CONVERSATION HISTORY
+        # ----------------------------------------------------
+
+        for message in st.session_state.copilot_messages:
+
+            messages.append(
+                {
+                    "role": message["role"],
+                    "content": message["content"]
+                }
+            )
+
+        # ----------------------------------------------------
+        # DEFINE TOOLS
+        # ----------------------------------------------------
+
+        tools = [
+
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_inventory_data",
+                    "description": (
+                        "Get inventory optimization data for a specific SKU, "
+                        "including safety stock, reorder point, "
+                        "order-up-to level, EOQ, inventory cost, "
+                        "service level, and forecast model."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "sku": {
+                                "type": "string",
+                                "description": (
+                                    "SKU identifier, for example SKU-01"
+                                )
+                            }
+                        },
+                        "required": ["sku"]
+                    }
+                }
+            },
+
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_model_performance",
+                    "description": (
+                        "Get forecasting model MAPE performance "
+                        "for a specific SKU and identify the model "
+                        "with the lowest MAPE."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "sku": {
+                                "type": "string",
+                                "description": (
+                                    "SKU identifier, for example SKU-01"
+                                )
+                            }
+                        },
+                        "required": ["sku"]
+                    }
+                }
+            }
+        ]
+
+        # ----------------------------------------------------
+        # FIRST QWEN CALL
+        # ----------------------------------------------------
+
+        try:
+
+            response = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.3
+            )
+
+            assistant_message = response.choices[0].message
+
+            # ------------------------------------------------
+            # CHECK WHETHER QWEN WANTS TO CALL A TOOL
+            # ------------------------------------------------
+
+            if assistant_message.tool_calls:
+
+                messages.append(
+                    assistant_message
+                )
+
+                # --------------------------------------------
+                # EXECUTE EACH TOOL CALL
+                # --------------------------------------------
+
+                for tool_call in assistant_message.tool_calls:
+
+                    function_name = tool_call.function.name
+
+                    import json
+
+                    arguments = json.loads(
+                        tool_call.function.arguments
+                    )
+
+                    if function_name == "get_inventory_data":
+
+                        tool_result = get_inventory_data(
+                            arguments["sku"]
+                        )
+
+                    elif function_name == "get_model_performance":
+
+                        tool_result = get_model_performance(
+                            arguments["sku"]
+                        )
+
+                    else:
+
+                        tool_result = {
+                            "success": False,
+                            "message": "Unknown tool."
+                        }
+
+                    # ----------------------------------------
+                    # SEND TOOL RESULT BACK TO QWEN
+                    # ----------------------------------------
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(
+                                tool_result,
+                                ensure_ascii=False
+                            )
+                        }
+                    )
+
+                # --------------------------------------------
+                # SECOND QWEN CALL
+                # --------------------------------------------
+
+                final_response = client.chat.completions.create(
+                    model=MODEL_NAME,
+                    messages=messages,
+                    temperature=0.3
+                )
+
+                assistant_response = (
+                    final_response
+                    .choices[0]
+                    .message
+                    .content
+                )
+
+            else:
+
+                # Qwen answered directly
+                assistant_response = (
+                    assistant_message.content
+                )
+
+        except Exception as e:
+
+            assistant_response = (
+                "⚠️ LLM 调用失败。\n\n"
+                f"Error: `{str(e)}`"
+            )
+
+        # ----------------------------------------------------
+        # SAVE ASSISTANT RESPONSE
+        # ----------------------------------------------------
+
+        st.session_state.copilot_messages.append(
+            {
+                "role": "assistant",
+                "content": assistant_response
             }
         )
 
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=messages,
-        temperature=0.3
-    )
+        with st.chat_message("assistant"):
 
-    assistant_response = response.choices[0].message.content
-
-except Exception as e:
-
-    assistant_response = (
-        "⚠️ LLM 调用失败。\n\n"
-        f"Error: `{str(e)}`"
-    )
-
-# ----------------------------------------------------
-# SAVE ASSISTANT RESPONSE
-# ----------------------------------------------------
-
-st.session_state.copilot_messages.append(
-    {
-        "role": "assistant",
-        "content": assistant_response
-    }
-)
-
-with st.chat_message("assistant"):
-    st.markdown(
-        assistant_response
-    )
-
+            st.markdown(
+                assistant_response
+            )
