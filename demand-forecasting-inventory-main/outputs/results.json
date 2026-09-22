@@ -1,0 +1,13 @@
+{
+  "skus": 6,
+  "days": 730,
+  "backtest_days": 60,
+  "forecast_horizon_days": 30,
+  "lead_time_days": 7,
+  "review_period_days": 7,
+  "best_overall_model": "Seasonal + Promo",
+  "best_overall_mape": 11.44,
+  "holding_cost_per_unit_per_year": 5.0,
+  "stockout_cost_per_unit": 5.0,
+  "ordering_cost_per_order": 100.0
+}
